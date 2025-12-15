@@ -1,1 +1,2742 @@
+local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
+
+local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
+local ThemeManager = loadstring(game:HttpGet(repo .. 'addons/ThemeManager.lua'))()
+local SaveManager = loadstring(game:HttpGet(repo .. 'addons/SaveManager.lua'))()
+
+local Window = Library:CreateWindow({
+
+    Title = 'PC Labs',
+    Center = true,
+    AutoShow = true,
+    TabPadding = 8,
+    MenuFadeTime = 0.2
+})
+--=========================================================
+local Tabs = {
+    Main = Window:AddTab('Main'), 
+    ['UI Settings'] = Window:AddTab('Settings'),
+}
+--===============================================================================================
+local LeftGroupBox = Tabs.Main:AddLeftGroupbox('Builds')
+
+local MyButton = LeftGroupBox:AddButton('MasterHand', function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/masterhand.lua'))()
+    print('Activated!')
+end)
+
+
+local MyButton = LeftGroupBox:AddButton('Click Bomber', function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/bombexplode.lua'))()
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Horse v2', function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/horse2.lua'))()
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Robot', function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/starplatinum.lua'))()
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Neptunian V', function()
+loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/neptunian.lua'))()    print('Activated!')
+end)
+
+LeftGroupBox:AddLabel('    ')
+
+LeftGroupBox:AddLabel('http://45.81.113.26/', true)
+--===============================================================================================
+
+local LeftGroupBox = Tabs.Main:AddLeftGroupbox('PCMT')
+
+local MyButton = LeftGroupBox:AddButton('Tracker v4', function()
+        local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+
+local isServer = game:GetService("RunService"):IsServer()
+local player = isServer and nil or Players.LocalPlayer
+
+local running = false 
+
+local pingMeasurements = {}
+local actualPing = 0.2
+local pingMeasurementActive = false
+local pingMeasurementStartTime = 0
+local pingUpdateInterval = 1
+
+if isServer then
+    local pingRemote = ReplicatedStorage:FindFirstChild("PingRemote") or Instance.new("RemoteEvent")
+    pingRemote.Name = "PingRemote"
+    pingRemote.Parent = ReplicatedStorage
+    print("Server initialized for missile script")
+    pingRemote.OnServerEvent:Connect(function(player)
+        print("Ping request received from:", player.Name)
+        pingRemote:FireClient(player)
+    end)
+    return
+end
+
+local pingRemote = ReplicatedStorage:FindFirstChild("PingRemote") or Instance.new("RemoteEvent")
+pingRemote.Name = "PingRemote"
+pingRemote.Parent = ReplicatedStorage
+
+pingRemote.OnClientEvent:Connect(function()
+    if pingMeasurementActive then
+        local pingTime = tick() - pingMeasurementStartTime
+        table.insert(pingMeasurements, pingTime / 2)
+        if #pingMeasurements > 5 then
+            table.remove(pingMeasurements, 1)
+        end
+        local sum = 0
+        for _, ping in ipairs(pingMeasurements) do
+            sum = sum + ping
+        end
+        actualPing = sum / #pingMeasurements
+        actualPing = math.clamp(actualPing, 0.1, 0.5)
+        pingMeasurementActive = false
+    end
+end)
+
+
+local MissileConfig = {
+    RadarRange = 10000,
+    BaseSpeed = 600,
+    MaxSpeed = 1500,
+    MinSpeed = 200,
+    Acceleration = 150,
+    LambdaBase = 0.01,
+    SmoothingThreshold = math.rad(40),
+    MinAltitude = 100,
+}
+
+local function initializeMissileSystem()
+    print("Attempting to initialize missile system...")
+
+    local playerAircraft = Workspace:FindFirstChild(player.Name .. " Aircraft")
+    if not playerAircraft then
+        warn("No aircraft found, entering standby!")
+        return false
+    end
+
+    local missileModels = {}
+    for _, child in playerAircraft:GetDescendants() do
+        if child:IsA("Model") and child.Name == "AnchoredBlockStd" then
+            table.insert(missileModels, child)
+        end
+    end
+
+    if #missileModels == 0 then
+        warn("No 'AnchoredBlockStd' models found, entering standby!")
+        return false
+    end
+
+    local currentMissileIndex = 1
+    local missileModel = missileModels[currentMissileIndex]
+    if not missileModel or not missileModel:IsA("Model") then
+        warn("Initial missile model invalid, entering standby!")
+        return false
+    end
+
+    if not missileModel.PrimaryPart then
+        warn("Set a PrimaryPart for 'AnchoredBlockStd'!")
+        return false
+    end
+
+    local missilePart = missileModel.PrimaryPart
+
+    missilePart.Anchored = false
+    print("Missile ready to launch:", missilePart.Name)
+
+    local highlightName = "CurrentMissileHighlight"
+
+    local function setMissileHighlight(model, isHighlighted)
+        if not model or not model:IsA("Model") then return end
+
+        local existingHighlight = model:FindFirstChild(highlightName)
+
+        if isHighlighted then
+            if not existingHighlight then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = highlightName
+                highlight.FillTransparency = 1
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 0)
+                highlight.OutlineTransparency = 0.1
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                highlight.Parent = model
+            end
+        else
+            if existingHighlight then
+                existingHighlight:Destroy()
+            end
+        end
+    end
+
+    setMissileHighlight(missileModel, true)
+
+    print("Client initialized for missile script, player:", player.Name, "Total Missiles:", #missileModels)
+
+    local radarRange = MissileConfig.RadarRange
+    local baseSpeed = MissileConfig.BaseSpeed
+    local maxSpeed = MissileConfig.MaxSpeed
+    local minSpeed = MissileConfig.MinSpeed
+    local acceleration = MissileConfig.Acceleration
+    local lambdaBase = MissileConfig.LambdaBase
+    local smoothingThreshold = MissileConfig.SmoothingThreshold
+    local MinAltitude = MissileConfig.MinAltitude
+
+    local lockTarget = nil
+    running = true 
+    local hasExploded = false
+    local currentSpeed = baseSpeed
+    local smoothedMissileVelocity = nil
+
+    local lastValidDirection = nil
+    local lastPingUpdate = 0
+
+    local kalmanState = {
+        position = Vector3.new(0, 0, 0),
+        velocity = Vector3.new(0, 0, 0),
+        acceleration = Vector3.new(0, 0, 0),
+        Q_Position = 0.5,
+        Q_Velocity = 1,
+        Q_Acceleration = 5,
+        R_Position = 50,
+        R_Velocity = 10,
+        R_Acceleration = 10,
+    }
+
+    local lastKalmanUpdateTime = 0
+
+    local screenGui
+    local speedFrame, speedLabel
+    local targetInfoFrame, targetNameLabel, targetDistanceLabel, targetVelocityLabel, targetTTILabel, targetZEMLabel
+    local statusFrame, statusLabel
+    
+    local activeConnections = {}
+
+
+    local function createStyledFrame(parent, name, size, position, color, transparency)
+
+        local frame = Instance.new("Frame")
+        frame.Name = name
+        frame.Size = size
+        frame.Position = position
+        frame.BackgroundTransparency = transparency or 0.6
+        frame.BackgroundColor3 = color or Color3.fromRGB(20, 20, 30)
+        frame.BorderSizePixel = 0
+        frame.ZIndex = 10
+        frame.Parent = parent
+
+        return frame
+    end
+
+    local function createStyledTextLabel(parent, size, position, text, color, fontSize)
+        local label = Instance.new("TextLabel")
+        label.Size = size
+        label.Position = position
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = color or Color3.fromRGB(0, 255, 255)
+        label.TextSize = fontSize or 14
+
+        label.Font = Enum.Font.SciFi
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 11
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.fromRGB(0, 0, 0)
+        stroke.Transparency = 0
+        stroke.Parent = label
+        label.Parent = parent
+        return label
+
+    end
+
+    local function setupAdditionalGUI()
+        if screenGui and screenGui.Parent then return end
+
+        print("Setting up GUI for:", player.Name)
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
+        screenGui.Name = "RadarGui"
+        screenGui.IgnoreGuiInset = true
+
+
+        speedFrame = createStyledFrame(screenGui, "SpeedFrame", UDim2.new(0, 220, 0, 60), UDim2.new(0, 20, 0, 60))
+        local speedGradient = Instance.new("UIGradient")
+        speedGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        speedGradient.Parent = speedFrame
+        local speedStroke = Instance.new("UIStroke")
+
+        speedStroke.Thickness = 2
+        speedStroke.Color = Color3.fromRGB(0, 255, 255)
+        speedStroke.Transparency = 0.5
+        speedStroke.Parent = speedFrame
+        speedLabel = createStyledTextLabel(speedFrame, UDim2.new(1, -10, 1, -10), UDim2.new(0, 5, 0, 5), "Missile Speed: 600.0 studs/s", Color3.fromRGB(0, 255, 255), 18)
+
+        targetInfoFrame = createStyledFrame(screenGui, "TargetInfoFrame", UDim2.new(0, 250, 0, 140), UDim2.new(1, -260, 1, -150))
+        local targetGradient = Instance.new("UIGradient")
+
+        targetGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        targetGradient.Parent = targetInfoFrame
+        local targetStroke = Instance.new("UIStroke")
+        targetStroke.Thickness = 2
+        targetStroke.Color = Color3.fromRGB(255, 0, 255)
+        targetStroke.Transparency = 0.5
+
+        targetStroke.Parent = targetInfoFrame
+        targetNameLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 5), "Target: None", Color3.fromRGB(255, 0, 255))
+        targetDistanceLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 25), "Distance: N/A", Color3.fromRGB(255, 0, 255))
+        targetVelocityLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 45), "Velocity: N/A", Color3.fromRGB(255, 0, 255))
+        targetTTILabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 65), "TTI: N/A", Color3.fromRGB(255, 0, 255))
+        targetZEMLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 85), "ZEM: N/A", Color3.fromRGB(255, 255, 0))
+
+
+        statusFrame = createStyledFrame(screenGui, "StatusFrame", UDim2.new(0, 150, 0, 30), UDim2.new(1, -160, 0, 60))
+        local statusGradient = Instance.new("UIGradient")
+        statusGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        statusGradient.Parent = statusFrame
+        local statusStroke = Instance.new("UIStroke")
+
+        statusStroke.Thickness = 2
+        statusStroke.Color = Color3.fromRGB(255, 255, 0)
+        statusStroke.Transparency = 0.5
+        statusStroke.Parent = statusFrame
+        statusLabel = createStyledTextLabel(statusFrame, UDim2.new(1, -10, 1, -10), UDim2.new(0, 5, 0, 5), "Status: No Target", Color3.fromRGB(255, 255, 0))
+    end
+
+    local function createHollowBox(size, color, parent)
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(0, size, 0, size)
+
+        box.BackgroundTransparency = 1
+        box.Parent = parent
+
+        local thickness = 2
+        local parts = {"Top", "Bottom", "Left", "Right"}
+        local positions = {
+            UDim2.new(0, 0, 0, 0), UDim2.new(0, 0, 1, -thickness),
+            UDim2.new(0, 0, 0, 0), UDim2.new(1, -thickness, 0, 0)
+        }
+
+        local sizes = {
+            UDim2.new(1, 0, 0, thickness), UDim2.new(1, 0, 0, thickness),
+            UDim2.new(0, thickness, 1, 0), UDim2.new(0, thickness, 1, 0)
+        }
+
+        for i, part in ipairs(parts) do
+            local frame = Instance.new("Frame")
+
+            frame.Name = part
+            frame.Size = sizes[i]
+            frame.Position = positions[i]
+            frame.BackgroundColor3 = color
+            frame.BorderSizePixel = 0
+            frame.Parent = box
+            local stroke = Instance.new("UIStroke")
+            stroke.Thickness = 1
+            stroke.Color = Color3.fromRGB(255, 255, 255)
+            stroke.Transparency = 0.5
+            stroke.Parent = frame
+        end
+
+        local velocityLabel = Instance.new("TextLabel", box)
+        velocityLabel.Size = UDim2.new(0, 80, 0, 20)
+        velocityLabel.Position = UDim2.new(0, -20, 0, -25)
+        velocityLabel.BackgroundTransparency = 1
+        velocityLabel.TextColor3 = color
+        velocityLabel.TextSize = 12
+        velocityLabel.Font = Enum.Font.SciFi
+        local velocityStroke = Instance.new("UIStroke")
+        velocityStroke.Thickness = 2
+        velocityStroke.Color = Color3.fromRGB(0, 0, 0)
+        velocityStroke.Transparency = 0
+        velocityStroke.Parent = velocityLabel
+
+
+        local distanceLabel = Instance.new("TextLabel", box)
+        distanceLabel.Size = UDim2.new(0, 80, 0, 20)
+        distanceLabel.Position = UDim2.new(0, -20, 0, 45)
+        distanceLabel.BackgroundTransparency = 1
+        distanceLabel.TextColor3 = color
+        distanceLabel.TextSize = 12
+        distanceLabel.Font = Enum.Font.SciFi
+        local distanceStroke = Instance.new("UIStroke")
+        distanceStroke.Thickness = 2
+
+        distanceStroke.Color = Color3.fromRGB(0, 0, 0)
+        distanceStroke.Transparency = 0
+        distanceStroke.Parent = distanceLabel
+
+        local ttiLabel = Instance.new("TextLabel", box)
+        ttiLabel.Size = UDim2.new(0, 80, 0, 20)
+        ttiLabel.Position = UDim2.new(0, -20, 0, 65)
+        ttiLabel.BackgroundTransparency = 1
+        ttiLabel.TextColor3 = color
+
+        ttiLabel.TextSize = 12
+        ttiLabel.Font = Enum.Font.SciFi
+        ttiLabel.Text = "TTI: N/A"
+        local ttiStroke = Instance.new("UIStroke")
+        ttiStroke.Thickness = 2
+        ttiStroke.Color = Color3.fromRGB(0, 0, 0)
+        ttiStroke.Transparency = 0
+        ttiStroke.Parent = ttiLabel
+
+        if color == Color3.fromRGB(255, 0, 0) then
+
+            local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+            local tween = TweenService:Create(box, tweenInfo, {Size = UDim2.new(0, size + 5, 0, size + 5)})
+            tween:Play()
+        end
+
+        return box, velocityLabel, distanceLabel, ttiLabel
+    end
+
+    local function createMissileTriangle(parent)
+        local triangle = Instance.new("Frame")
+
+        triangle.Size = UDim2.new(0, 30, 0, 30)
+        triangle.BackgroundTransparency = 1
+        triangle.Parent = parent
+        triangle.Name = "MissileTriangle"
+
+        local line1 = Instance.new("Frame")
+        line1.Size = UDim2.new(0, 2, 0, 20)
+        line1.Position = UDim2.new(0, 19, 0, 10)
+        line1.Rotation = -60
+        line1.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+
+        line1.BorderSizePixel = 0
+        line1.Parent = triangle
+        local stroke1 = Instance.new("UIStroke")
+        stroke1.Thickness = 1
+        stroke1.Color = Color3.fromRGB(255, 255, 255)
+        stroke1.Transparency = 0.5
+        stroke1.Parent = line1
+
+        local line2 = Instance.new("Frame")
+        line2.Size = UDim2.new(0, 2, 0, 20)
+
+        line2.Position = UDim2.new(0, 19, 0, 10)
+        line2.Rotation = 60
+        line2.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        line2.BorderSizePixel = 0
+        line2.Parent = triangle
+        local stroke2 = Instance.new("UIStroke")
+        stroke2.Thickness = 1
+        stroke2.Color = Color3.fromRGB(255, 255, 255)
+        stroke2.Transparency = 0.5
+
+        stroke2.Parent = line2
+
+        local line3 = Instance.new("Frame")
+        line3.Size = UDim2.new(0, 24, 0, 2)
+        line3.Position = UDim2.new(0, 8, 0, 28)
+        line3.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        line3.BorderSizePixel = 0
+        line3.Parent = triangle
+        local stroke3 = Instance.new("UIStroke")
+        stroke3.Thickness = 1
+
+        stroke3.Color = Color3.fromRGB(255, 255, 255)
+        stroke3.Transparency = 0.5
+        stroke3.Parent = line3
+
+
+        return triangle
+    end
+
+    local function createOffScreenArrow(parent)
+        local arrow = Instance.new("Frame")
+        arrow.Size = UDim2.new(0, 20, 0, 20)
+        arrow.BackgroundTransparency = 1
+        arrow.Parent = parent
+
+        local line1 = Instance.new("Frame")
+        line1.Size = UDim2.new(0, 2, 0, 15)
+        line1.Position = UDim2.new(0, 9, 0, 5)
+        line1.Rotation = -45
+        line1.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+        line1.BorderSizePixel = 0
+        line1.Parent = arrow
+        local stroke1 = Instance.new("UIStroke")
+        stroke1.Thickness = 1
+        stroke1.Color = Color3.fromRGB(255, 255, 255)
+        stroke1.Transparency = 0.5
+        stroke1.Parent = line1
+
+        local line2 = Instance.new("Frame")
+        line2.Size = UDim2.new(0, 2, 0, 15)
+        line2.Position = UDim2.new(0, 9, 0, 5)
+        line2.Rotation = 45
+        line2.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+        line2.BorderSizePixel = 0
+        line2.Parent = arrow
+        local stroke2 = Instance.new("UIStroke")
+        stroke2.Thickness = 1
+        stroke2.Color = Color3.fromRGB(255, 255, 255)
+        stroke2.Transparency = 0.5
+
+        stroke2.Parent = line2
+
+        local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+        local tween = TweenService:Create(arrow, tweenInfo, {Transparency = 0.3})
+        tween:Play()
+
+        return arrow
+    end
+
+    local function updateMissileSpeed(deltaTime, targetVelocity, distance)
+        local targetSpeed = baseSpeed
+        if targetVelocity.Magnitude > baseSpeed * 0.6 then
+            targetSpeed = math.min(maxSpeed, baseSpeed + targetVelocity.Magnitude * 0.8)
+        end
+        if distance > 500 then
+            targetSpeed = math.min(maxSpeed, targetSpeed + distance * 0.1)
+        end
+        local speedAdjustment = (targetSpeed - currentSpeed) * 0.1
+        currentSpeed = math.clamp(currentSpeed + speedAdjustment, minSpeed, maxSpeed)
+    end
+
+    local function determineAspect(missilePosition, targetPosition, targetVelocity)
+        local relativePosition = targetPosition - missilePosition
+        local aspectAngle = math.deg(math.acos(targetVelocity.Unit:Dot(-relativePosition.Unit)))
+        if aspectAngle < 45 then
+            return "Front"
+        elseif aspectAngle > 135 then
+            return "Rear"
+        else
+            return "Side"
+        end
+    end
+
+    local function updatePing()
+        local currentTime = tick()
+        if currentTime - lastPingUpdate < pingUpdateInterval then
+            return
+        end
+        lastPingUpdate = currentTime
+
+        if not pingMeasurementActive then
+            print("Starting ping measurement for:", player.Name)
+            pingMeasurementActive = true
+            pingMeasurementStartTime = currentTime
+            pingRemote:FireServer()
+        end
+    end
+
+    local function calculateLeadPosition(targetPosition, targetVelocity, missilePosition, missileSpeed, ping, targetAcceleration)
+        local relativePosition = targetPosition - missilePosition
+        local relativeVelocity = targetVelocity - missilePart.AssemblyLinearVelocity
+        local distance = relativePosition.Magnitude
+
+        local closingSpeed = math.max(50, missileSpeed - relativeVelocity:Dot(relativePosition.Unit) + 0.5 * targetAcceleration:Dot(relativePosition.Unit))
+        local tti = distance / closingSpeed
+        tti = math.clamp(tti, 0.1, 1.5)
+
+        local serverProcessingBuffer = 0.05
+        local latencyAdjustedTTI = tti + ping + serverProcessingBuffer
+
+        local velocityScale = math.sqrt(targetVelocity.Magnitude / 300)
+        velocityScale = math.clamp(velocityScale, 0.4, 1.2)
+        local distanceScale = math.clamp(distance / 2000, 0.5, 1.0)
+        local accelFactor = math.clamp(1 - targetAcceleration.Magnitude / 200, 0.6, 1.0)
+
+        local speedRatio = targetVelocity.Magnitude / missileSpeed
+        local minLead = math.clamp(0.3 + speedRatio * 0.2, 0.3, 0.5)
+        local maxLead = math.clamp(1.8 - speedRatio * 0.2, 0.8, 2.0)
+        local leadFactor = math.clamp(velocityScale * distanceScale * accelFactor, minLead, maxLead)
+
+        local baseLead = targetVelocity * (latencyAdjustedTTI * leadFactor) + 1.0 * targetAcceleration * latencyAdjustedTTI^2
+        if distance < 500 then
+            baseLead = baseLead + 0.5 * targetAcceleration * latencyAdjustedTTI^2
+        end
+
+        local pingAdjust = ping * targetVelocity.Magnitude / 450
+
+        return targetPosition + baseLead + (targetVelocity.Unit * pingAdjust), latencyAdjustedTTI, leadFactor
+    end
+
+    local function calculateZEM(missilePosition, missileVelocity, targetPosition, targetVelocity, tti)
+        if tti <= 0 or tti > 3 then return Vector3.new(0, 0, 0) end
+        local relativePosition = targetPosition - missilePosition
+        local relativeVelocity = targetVelocity - missileVelocity
+
+        local zem = relativePosition + relativeVelocity * tti
+
+        return zem
+    end
+
+
+    local function augmentedProportionalNavigation(missilePosition, targetPosition, targetVelocity, missileVelocity, targetAcceleration)
+        local relativePosition = targetPosition - missilePosition
+        local relativeVelocity = targetVelocity - missileVelocity
+
+        local losRate = relativeVelocity:Cross(relativePosition).Magnitude / math.max(10, relativePosition.Magnitude)
+
+        local aspectAngle = math.deg(math.acos(relativeVelocity.Unit:Dot(-relativePosition.Unit)))
+        local maneuverabilityFactor = math.clamp(targetAcceleration.Magnitude / 100, 0, 1)
+        local navigationGain = 3 + math.clamp((aspectAngle - 90) / 90, -1, 1) + maneuverabilityFactor
+        navigationGain = math.clamp(navigationGain, 2, 5)
+
+        local correction = navigationGain * losRate * relativePosition.Unit
+
+        correction = correction + (navigationGain / 2) * targetAcceleration
+
+
+        if relativePosition.Magnitude < 300 then
+            correction = correction + relativePosition.Unit * (150 + relativePosition.Magnitude * 0.5)
+        elseif relativePosition.Magnitude > 1000 then
+            correction = correction + relativePosition.Unit * 200
+        end
+
+        local dampingFactor = 0.9
+
+        correction = correction * dampingFactor
+
+        return correction
+    end
+
+    local function isTargetGrounded(targetPosition)
+        if not lockTarget or not lockTarget.PrimaryPart then return false end
+        
+        local groundCheckDistance = 300
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {lockTarget, missileModel, playerAircraft}
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local raycastResult = Workspace:Raycast(targetPosition + Vector3.new(0, 50, 0), Vector3.new(0, -(groundCheckDistance + 50), 0), raycastParams)
+        
+        if raycastResult and raycastResult.Instance then
+            local distanceToGround = (targetPosition - raycastResult.Position).Magnitude
+     
+            if distanceToGround < 100 then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function terrainAvoidanceCorrection(missilePosition, currentSpeed, targetPosition)
+        local MinAltitude = MissileConfig.MinAltitude
+        
+        if lockTarget and isTargetGrounded(targetPosition) then
+            return Vector3.new(0, 0, 0)
+        end
+        
+        local safeRayDistance = 600
+        local raycastParams = RaycastParams.new()
+        raycastParams.FilterDescendantsInstances = {playerAircraft, missileModel}
+        raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+        local raycastResult = Workspace:Raycast(missilePosition, Vector3.new(0, -safeRayDistance, 0), raycastParams)
+
+        if raycastResult and raycastResult.Instance and raycastResult.Instance.Name ~= "Baseplate" then
+            local distanceToGround = (missilePosition - raycastResult.Position).Magnitude
+            if distanceToGround < MinAltitude then
+                local requiredAvoidance = (MinAltitude - distanceToGround) * 50
+                return Vector3.new(0, requiredAvoidance, 0)
+            elseif distanceToGround < MinAltitude + 300 then
+                local requiredAvoidance = (MinAltitude + 300 - distanceToGround) * 5
+                return Vector3.new(0, requiredAvoidance, 0)
+            end
+        end
+        return Vector3.new(0, 0, 0)
+    end
+
+    local function preFireExplosion(targetPosition)
+        local remote = ReplicatedStorage:FindFirstChild("Remotes")
+        if remote then
+            local explodeEvent = remote:FindFirstChild("Explode")
+            if explodeEvent and explodeEvent:IsA("RemoteEvent") then
+
+                local explosiveBlockFound = false
+
+                for _, explosiveBlock in pairs(playerAircraft:GetDescendants()) do
+                    if explosiveBlock:IsA("Model") and explosiveBlock.Name == "ExplosiveBlock" then
+                        explosiveBlockFound = true
+                        print("Pre-firing explosion at predicted position:", targetPosition, "with explosiveBlock:", explosiveBlock:GetFullName())
+                        explodeEvent:FireServer(explosiveBlock, 2500, 12, targetPosition)
+                        print("Explosion event fired for explosiveBlock:", explosiveBlock:GetFullName())
+                        break
+                    end
+                end
+
+                if not explosiveBlockFound then
+                    warn("No ExplosiveBlock models found in playerAircraft!")
+                end
+
+            else
+                warn("Explode RemoteEvent missing in Remotes folder!")
+            end
+        else
+            warn("Remotes folder not found in ReplicatedStorage!")
+        end
+    end
+
+    local lastPredictedDistance = nil
+
+    local function activateNextMissile()
+        local oldMissile = missileModel
+
+
+        currentMissileIndex = currentMissileIndex + 1
+        if currentMissileIndex <= #missileModels then
+            missileModel = missileModels[currentMissileIndex]
+
+            setMissileHighlight(oldMissile, false)
+
+            missilePart = missileModel.PrimaryPart
+            if missilePart then
+
+                missilePart.Anchored = false
+                print("Switched to next missile:", missilePart.Name)
+
+                hasExploded = false
+                lockTarget = nil
+                currentSpeed = baseSpeed
+
+                kalmanState.position = missilePart.Position
+                kalmanState.velocity = Vector3.new(0, 0, 0)
+                kalmanState.acceleration = Vector3.new(0, 0, 0)
+                lastKalmanUpdateTime = tick()
+
+
+                setMissileHighlight(missileModel, true)
+
+            else
+                warn("Next missile model has no PrimaryPart, trying next...")
+                activateNextMissile()
+            end
+        else
+            print("No more missiles left. Script stopping.")
+            running = false 
+            setMissileHighlight(oldMissile, false)
+        end
+    end
+
+    local function autoDetonate(ping)
+        if not running or not lockTarget or not missilePart or hasExploded then return end
+        local targetPart = lockTarget.PrimaryPart
+
+
+        if not targetPart then
+            print("Target part is nil, skipping detonation")
+            return
+        end
+
+        local missilePosition = missilePart.Position
+
+        local targetPosition = kalmanState.position
+        local targetVelocity = kalmanState.velocity
+        local targetAcceleration = kalmanState.acceleration
+
+        local predictedPosition, tti, leadFactor = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, actualPing, targetAcceleration)
+
+        local predictedDistance = (missilePosition - predictedPosition).Magnitude
+
+        if not targetVelocity or not ping then
+            print("Invalid targetVelocity or ping, cannot calculate detRange - targetVelocity:", targetVelocity, "ping:", ping)
+            return
+        end
+
+        local baseDetRange = 10 + targetVelocity.Magnitude / 25
+        local serverProcessingBuffer = 0.05
+
+        local latencyAdjustedDetRange = baseDetRange + (ping + serverProcessingBuffer) * 100
+        local detRange = math.clamp(latencyAdjustedDetRange, 20, 100)
+
+        if lastPredictedDistance and predictedDistance < lastPredictedDistance then
+            detRange = detRange * 1.2
+        end
+        lastPredictedDistance = predictedDistance
+
+
+        print("Checking detonation - Predicted Position:", predictedPosition, "Actual Position:", targetPart.Position, "Distance Error:", (predictedPosition - targetPart.Position).Magnitude, "Det Range:", detRange)
+
+
+        local aspect = determineAspect(missilePosition, targetPart.Position, targetVelocity)
+        if predictedDistance < detRange then
+            print("Hit! Aspect:", aspect, "Predicted Distance:", predictedDistance, "Det Range:", detRange, "Ping:", ping, "Lead Factor:", leadFactor)
+            preFireExplosion(predictedPosition)
+            hasExploded = true
+            activateNextMissile()
+        else
+
+            print("Tracking... Aspect:", aspect, "Predicted Distance:", predictedDistance, "Det Range:", detRange, "Ping:", ping, "Lead Factor:", leadFactor)
+        end
+    end
+    
+    local currentTargetsOnScreen = {}
+
+    local function updateTargetMarkers()
+        if not running or not missilePart or hasExploded then return end
+        
+        currentTargetsOnScreen = {} 
+
+        for _, child in pairs(screenGui:GetChildren()) do
+            if child.Name ~= "SpeedFrame" and child.Name ~= "TargetInfoFrame" and child.Name ~= "StatusFrame" then
+
+                child:Destroy()
+            end
+        end
+
+        local missilePos, missileOnScreen = Workspace.CurrentCamera:WorldToViewportPoint(missilePart.Position)
+        if missileOnScreen then
+            local triangle = createMissileTriangle(screenGui)
+            triangle.Position = UDim2.new(0, missilePos.X - 20, 0, missilePos.Y - 20)
+        end
+
+
+        for _, model in pairs(Workspace:GetChildren()) do
+            if model:IsA("Model") and model.Name:match(" Aircraft$") and model ~= playerAircraft then
+                local targetPart = model.PrimaryPart
+                if targetPart then
+                    local distance = (targetPart.Position - missilePart.Position).Magnitude
+                    if distance < radarRange then
+
+
+                        local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+
+                            local marker, velocityLabel, distanceLabel, ttiLabel = createHollowBox(40, lockTarget == model and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0), screenGui)
+
+                            marker.Position = UDim2.new(0, screenPos.X - 20, 0, screenPos.Y - 20)
+                            
+                            table.insert(currentTargetsOnScreen, {
+                                Model = model, 
+                                Marker = marker, 
+                                ScreenPos = Vector2.new(screenPos.X, screenPos.Y)
+                            })
+
+
+                            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+                                velocityLabel.Text = string.format("%.1f studs/s", targetPart.AssemblyLinearVelocity.Magnitude)
+
+                                distanceLabel.Text = string.format("%.1f studs", distance)
+
+                                local _, tti = calculateLeadPosition(targetPart.Position, targetPart.AssemblyLinearVelocity, missilePart.Position, currentSpeed, actualPing, Vector3.new(0, 0, 0))
+
+                                ttiLabel.Text = string.format("TTI: %.2f s", tti)
+
+
+                            else
+
+
+                                velocityLabel.Text = "Velocity: N/A"
+                                distanceLabel.Text = string.format("%.1f studs", distance)
+
+                                ttiLabel.Text = "TTI: N/A"
+
+
+                            end
+                        else
+
+                            local viewportSize = Workspace.CurrentCamera.ViewportSize
+                            local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+
+                            local direction = Vector2.new(screenPos.X - screenCenter.X, screenPos.Y - screenCenter.Y)
+
+                            local angle = math.deg(math.atan2(direction.Y, direction.X))
+
+
+                            local clampedPos = Vector2.new(
+
+
+                                math.clamp(screenPos.X, 20, viewportSize.X - 20),
+                                math.clamp(screenPos.Y, 20, viewportSize.Y - 20)
+                            )
+
+
+                            local arrow = createOffScreenArrow(screenGui)
+                            arrow.Position = UDim2.new(0, clampedPos.X - 10, 0, clampedPos.Y - 10)
+
+
+                            arrow.Rotation = angle
+
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local function acquireTarget(input)
+        if not running or lockTarget or hasExploded then return end
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            local mousePosition = UserInputService:GetMouseLocation()
+            local acquisitionDistance = 30 
+
+            for _, targetInfo in ipairs(currentTargetsOnScreen) do
+                local screenCenter = targetInfo.Marker.Position.X.Offset + targetInfo.Marker.Size.X.Offset / 2
+                local screenMiddle = targetInfo.Marker.Position.Y.Offset + targetInfo.Marker.Size.Y.Offset / 2
+
+                local markerCenter = Vector2.new(screenCenter, screenMiddle)
+                
+                
+                if (mousePosition - markerCenter).Magnitude < acquisitionDistance then
+                    local model = targetInfo.Model
+                    local targetPart = model.PrimaryPart
+                    
+                    if targetPart and targetPart.Parent then
+                        lockTarget = model
+                        currentSpeed = baseSpeed
+                        
+                        
+                        kalmanState.position = targetPart.Position
+                        kalmanState.velocity = targetPart.AssemblyLinearVelocity
+                        kalmanState.acceleration = Vector3.new(0, 0, 0)
+                        lastKalmanUpdateTime = tick()
+                        
+                        print("Target acquired:", lockTarget.Name)
+                        return 
+                    end
+                end
+            end
+        end
+    end
+
+    local inputConnection = UserInputService.InputBegan:Connect(acquireTarget)
+    table.insert(activeConnections, inputConnection)
+
+
+    local function kalmanFilterUpdate(deltaTime, measuredPosition, measuredVelocity)
+        if deltaTime <= 0 then return end
+
+        local state = kalmanState
+
+        local predictedPosition = state.position + state.velocity * deltaTime + 0.5 * state.acceleration * deltaTime^2
+        local predictedVelocity = state.velocity + state.acceleration * deltaTime
+        local predictedAcceleration = state.acceleration
+
+
+        local K_p_factor = state.Q_Position * deltaTime
+        local K_v_factor = state.Q_Velocity * deltaTime
+        local K_a_factor = state.Q_Acceleration * deltaTime
+
+        local K_gain_P = (K_p_factor + state.Q_Position) / (K_p_factor + state.Q_Position + state.R_Position)
+        local K_gain_V = (K_v_factor + state.Q_Velocity) / (K_v_factor + state.Q_Velocity + state.R_Velocity)
+        local K_gain_A = (K_a_factor + state.Q_Acceleration) / (K_a_factor + state.Q_Acceleration + state.R_Acceleration)
+
+        local residualPosition = measuredPosition - predictedPosition
+        local residualVelocity = measuredVelocity - predictedVelocity
+
+        local correctedPosition = predictedPosition + residualPosition * K_gain_P
+        local correctedVelocity = predictedVelocity + residualVelocity * K_gain_V
+
+        local newAcceleration = (correctedVelocity - state.velocity) / deltaTime
+        local correctedAcceleration = predictedAcceleration + (newAcceleration - predictedAcceleration) * K_gain_A
+
+
+        state.position = correctedPosition
+        state.velocity = correctedVelocity
+        state.acceleration = correctedAcceleration
+
+        return correctedPosition, correctedVelocity, correctedAcceleration
+    end
+
+    local function onAircraftRemoved()
+
+        running = false 
+    end
+    
+    local function cleanupAndStop()
+        print("Cleaning up resources...")
+        
+        
+        for _, conn in ipairs(activeConnections) do
+            if conn and typeof(conn) == "RBXScriptConnection" then
+                conn:Disconnect()
+            end
+        end
+        activeConnections = {}
+        
+        
+        if screenGui then
+            screenGui:Destroy()
+            screenGui = nil
+        end
+        
+        
+        setMissileHighlight(missileModel, false)
+    end
+
+
+    local ancestryConnection = playerAircraft.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            onAircraftRemoved()
+        end
+
+    end)
+    table.insert(activeConnections, ancestryConnection)
+
+
+    setupAdditionalGUI()
+    local renderConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        if not running then
+            cleanupAndStop()
+            return
+        end
+        
+        
+        updatePing()
+
+        if speedFrame and speedFrame.Parent then
+            speedLabel.Text = string.format("Missile Speed: %.1f studs/s", currentSpeed)
+
+        else
+            setupAdditionalGUI()
+        end
+
+        if hasExploded then
+            statusLabel.Text = "Status: Missile Exploded"
+            targetInfoFrame.Visible = false
+        elseif #missileModels == 0 then
+
+            statusLabel.Text = "Status: No Missiles"
+            targetInfoFrame.Visible = false
+        elseif lockTarget then
+            statusLabel.Text = string.format("Status: Tracking Missile %d/%d", currentMissileIndex, #missileModels)
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+
+                targetInfoFrame.Visible = true
+                local missilePosition = missilePart.Position
+
+
+                local targetPosition = kalmanState.position
+                local targetVelocity = kalmanState.velocity
+
+                local targetAcceleration = kalmanState.acceleration
+                local distance = (targetPosition - missilePosition).Magnitude
+
+
+                local predictedPosition, tti = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, actualPing, targetAcceleration)
+
+                local missileVelocity = missilePart.AssemblyLinearVelocity
+                local zemVector = calculateZEM(missilePosition, missileVelocity, targetPosition, targetVelocity, tti)
+                local zem = zemVector.Magnitude
+
+                targetNameLabel.Text = "Target: " .. lockTarget.Name
+
+                targetDistanceLabel.Text = string.format("Distance: %.1f studs", distance)
+                targetVelocityLabel.Text = string.format("Velocity: %.1f studs/s", targetVelocity.Magnitude)
+                targetTTILabel.Text = string.format("TTI: %.2f s", tti)
+                targetZEMLabel.Text = string.format("ZEM: %.1f studs", zem)
+
+            else
+
+                print("Target lost:", lockTarget and lockTarget.Name or "Unknown")
+                lockTarget = nil
+                targetInfoFrame.Visible = false
+            end
+        else
+            statusLabel.Text = string.format("Status: Ready Missile %d/%d", currentMissileIndex, #missileModels)
+
+            targetInfoFrame.Visible = false
+        end
+
+
+        updateTargetMarkers()
+
+        if lockTarget and missilePart and not hasExploded then
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+                local missilePosition = missilePart.Position
+
+
+                local rawTargetPosition = targetPart.Position
+                local rawTargetVelocity = targetPart.AssemblyLinearVelocity
+                local distance = (rawTargetPosition - missilePosition).Magnitude
+
+                updateMissileSpeed(deltaTime, rawTargetVelocity, distance)
+
+
+                local currentTime = tick()
+
+                if lastKalmanUpdateTime > 0 then
+                    local dt = currentTime - lastKalmanUpdateTime
+                    kalmanFilterUpdate(dt, rawTargetPosition, rawTargetVelocity)
+
+                else
+
+                    kalmanState.position = rawTargetPosition
+                    kalmanState.velocity = rawTargetVelocity
+                    kalmanState.acceleration = Vector3.new(0, 0, 0)
+                end
+                lastKalmanUpdateTime = currentTime
+
+                local targetPosition = kalmanState.position
+                local targetVelocity = kalmanState.velocity
+
+
+                local targetAcceleration = kalmanState.acceleration
+                local missileVelocity = missilePart.AssemblyLinearVelocity
+
+                local predictedPosition, tti = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, actualPing, targetAcceleration)
+
+                local correction = augmentedProportionalNavigation(missilePosition, predictedPosition, targetVelocity, missileVelocity, targetAcceleration)
+
+                local terrainCorrection = terrainAvoidanceCorrection(missilePosition, currentSpeed, targetPosition)
+
+                local desiredDirection = (predictedPosition - missilePosition).Unit + correction.Unit * 0.2
+                local desiredVelocity
+                if desiredDirection.Magnitude > 0 then
+                    desiredVelocity = desiredDirection.Unit * currentSpeed
+                    lastValidDirection = desiredDirection.Unit
+
+                else
+                    desiredVelocity = (lastValidDirection or (predictedPosition - missilePosition).Unit) * currentSpeed
+                    print("Warning: Desired direction invalid, using fallback direction")
+                end
+
+
+                local effectiveDesiredVelocity = desiredVelocity + terrainCorrection * deltaTime * 10
+
+                if terrainCorrection.Magnitude > 0 then
+
+                    effectiveDesiredVelocity = effectiveDesiredVelocity.Unit * currentSpeed
+                end
+
+                local applySmoothing = false
+
+                if smoothedMissileVelocity then
+
+                    local currentDirection = missilePart.AssemblyLinearVelocity.Unit
+
+                    local desiredDirectionUnit = effectiveDesiredVelocity.Magnitude > 0 and effectiveDesiredVelocity.Unit or currentDirection
+                    local angleBetween = math.acos(currentDirection:Dot(desiredDirectionUnit))
+
+                    applySmoothing = angleBetween > smoothingThreshold
+
+                end
+
+                if applySmoothing then
+
+                    local smoothingFactor = math.clamp(distance / 1000, 0.3, 0.7)
+                    if smoothedMissileVelocity == nil then
+
+                        smoothedMissileVelocity = effectiveDesiredVelocity
+                    else
+
+                        smoothedMissileVelocity = smoothingFactor * smoothedMissileVelocity + (1 - smoothingFactor) * effectiveDesiredVelocity
+
+                    end
+                else
+
+                    smoothedMissileVelocity = effectiveDesiredVelocity
+
+                end
+
+                if smoothedMissileVelocity.Magnitude > 0 then
+
+                    smoothedMissileVelocity = smoothedMissileVelocity.Unit * currentSpeed
+                else
+
+                    smoothedMissileVelocity = effectiveDesiredVelocity
+                end
+
+
+                missilePart.AssemblyLinearVelocity = smoothedMissileVelocity
+
+                if smoothedMissileVelocity.Magnitude > 0 then
+                    missilePart.CFrame = CFrame.new(missilePart.Position, missilePart.Position + smoothedMissileVelocity)
+                end
+
+
+                local zemVector = calculateZEM(missilePosition, missilePart.AssemblyLinearVelocity, targetPosition, targetVelocity, tti)
+                print(string.format("Missile State - Speed: %.1f | Dist: %.1f | Accel: %.1f | ZEM: %.1f | Alt Cor: %.1f",
+                currentSpeed, distance, targetAcceleration.Magnitude, zemVector.Magnitude, terrainCorrection.Magnitude))
+
+                autoDetonate(actualPing)
+            else
+                print("Target invalid during tracking:", lockTarget and lockTarget.Name or "Unknown")
+
+
+                lockTarget = nil
+                targetInfoFrame.Visible = false
+            end
+        end
+    end)
+    table.insert(activeConnections, renderConnection)
+    
+    return true
+end
+
+
+if not isServer then
+    while true do
+        local success = initializeMissileSystem()
+        if success then
+            repeat
+                RunService.Heartbeat:Wait()
+            until not running
+            task.wait(0.1) 
+        else
+            task.wait(2) 
+        end
+    end
+end
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Tracker v3', function()
+        local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local isServer = game:GetService("RunService"):IsServer()
+local player = isServer and nil or Players.LocalPlayer
+
+local playerAircraft = isServer and nil or Workspace:FindFirstChild(player.Name .. " Aircraft")
+if not isServer and not playerAircraft then
+    warn("No aircraft found, you're grounded!")
+    return
+end
+
+local missileModel = isServer and script.Parent or playerAircraft:FindFirstChild("AnchoredBlockStd")
+if not missileModel or not missileModel:IsA("Model") then
+    warn("Where's the missile? 'AnchoredBlockStd' missing!")
+    return
+end
+
+if not missileModel.PrimaryPart then
+    warn("Set a PrimaryPart for 'AnchoredBlockStd'!")
+    return
+end
+
+local missilePart = missileModel.PrimaryPart
+if not isServer then
+    missilePart.Anchored = false
+    print("Missile ready to launch:", missilePart.Name)
+end
+
+local MissileConfig = {
+    RadarRange = 10000,
+    BaseSpeed = 600,
+    MaxSpeed = 1500,
+    MinSpeed = 200,
+    Acceleration = 150,
+    LambdaBase = 0.01,
+    SmoothingThreshold = math.rad(10),
+}
+
+local pingRemote = ReplicatedStorage:FindFirstChild("PingRemote") or Instance.new("RemoteEvent")
+pingRemote.Name = "PingRemote"
+pingRemote.Parent = ReplicatedStorage
+
+if isServer then
+    print("Server initialized for missile script")
+    pingRemote.OnServerEvent:Connect(function(player)
+        print("Ping request received from:", player.Name)
+        pingRemote:FireClient(player)
+    end)
+end
+
+if not isServer then
+    print("Client initialized for missile script, player:", player.Name)
+    local radarRange = MissileConfig.RadarRange
+    local baseSpeed = MissileConfig.BaseSpeed
+    local maxSpeed = MissileConfig.MaxSpeed
+    local minSpeed = MissileConfig.MinSpeed
+    local acceleration = MissileConfig.Acceleration
+    local lambdaBase = MissileConfig.LambdaBase
+    local smoothingThreshold = MissileConfig.SmoothingThreshold
+    local lockTarget = nil
+    local running = true
+    local hasExploded = false
+    local currentSpeed = baseSpeed
+    local lastTargetVelocity = nil
+    local lastTargetTime = 0
+    local smoothedMissileVelocity = nil
+    local lastValidDirection = nil
+    local actualPing = 0.2
+    local lastPingUpdate = 0
+    local pingUpdateInterval = 1
+    local pingMeasurementActive = false
+    local pingMeasurementStartTime = 0
+    local pingMeasurements = {}
+    local lastTargetAcceleration = Vector3.new(0, 0, 0)
+    local alpha = 0.3
+
+    local screenGui
+    local speedFrame, speedLabel
+    local targetInfoFrame, targetNameLabel, targetDistanceLabel, targetVelocityLabel, targetTTILabel
+    local statusFrame, statusLabel
+
+    local function createStyledFrame(parent, name, size, position, color, transparency)
+        local frame = Instance.new("Frame")
+        frame.Name = name
+        frame.Size = size
+        frame.Position = position
+        frame.BackgroundTransparency = transparency or 0.6
+        frame.BackgroundColor3 = color or Color3.fromRGB(20, 20, 30)
+        frame.BorderSizePixel = 0
+        frame.ZIndex = 10
+        frame.Parent = parent
+        return frame
+    end
+
+    local function createStyledTextLabel(parent, size, position, text, color, fontSize)
+        local label = Instance.new("TextLabel")
+        label.Size = size
+        label.Position = position
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = color or Color3.fromRGB(0, 255, 255)
+        label.TextSize = fontSize or 14
+        label.Font = Enum.Font.SciFi
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.ZIndex = 11
+        label.Parent = parent
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.fromRGB(0, 0, 0)
+        stroke.Transparency = 0
+        stroke.Parent = label
+        return label
+    end
+
+    local function setupAdditionalGUI()
+        print("Setting up GUI for:", player.Name)
+        screenGui = Instance.new("ScreenGui")
+        screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
+        screenGui.Name = "RadarGui"
+        screenGui.IgnoreGuiInset = true
+
+        speedFrame = createStyledFrame(screenGui, "SpeedFrame", UDim2.new(0, 220, 0, 60), UDim2.new(0, 20, 0, 60))
+        local speedGradient = Instance.new("UIGradient")
+        speedGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        speedGradient.Parent = speedFrame
+        local speedStroke = Instance.new("UIStroke")
+        speedStroke.Thickness = 2
+        speedStroke.Color = Color3.fromRGB(0, 255, 255)
+        speedStroke.Transparency = 0.5
+        speedStroke.Parent = speedFrame
+        speedLabel = createStyledTextLabel(speedFrame, UDim2.new(1, -10, 1, -10), UDim2.new(0, 5, 0, 5), "Missile Speed: 600.0 studs/s", Color3.fromRGB(0, 255, 255), 18)
+
+        targetInfoFrame = createStyledFrame(screenGui, "TargetInfoFrame", UDim2.new(0, 250, 0, 120), UDim2.new(1, -260, 1, -130))
+        local targetGradient = Instance.new("UIGradient")
+        targetGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        targetGradient.Parent = targetInfoFrame
+        local targetStroke = Instance.new("UIStroke")
+        targetStroke.Thickness = 2
+        targetStroke.Color = Color3.fromRGB(255, 0, 255)
+        targetStroke.Transparency = 0.5
+        targetStroke.Parent = targetInfoFrame
+        targetNameLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 5), "Target: None", Color3.fromRGB(255, 0, 255))
+        targetDistanceLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 25), "Distance: N/A", Color3.fromRGB(255, 0, 255))
+        targetVelocityLabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 45), "Velocity: N/A", Color3.fromRGB(255, 0, 255))
+        targetTTILabel = createStyledTextLabel(targetInfoFrame, UDim2.new(1, -10, 0, 20), UDim2.new(0, 5, 0, 65), "TTI: N/A", Color3.fromRGB(255, 0, 255))
+
+        statusFrame = createStyledFrame(screenGui, "StatusFrame", UDim2.new(0, 150, 0, 30), UDim2.new(1, -160, 0, 60))
+        local statusGradient = Instance.new("UIGradient")
+        statusGradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+        })
+        statusGradient.Parent = statusFrame
+        local statusStroke = Instance.new("UIStroke")
+        statusStroke.Thickness = 2
+        statusStroke.Color = Color3.fromRGB(255, 255, 0)
+        statusStroke.Transparency = 0.5
+        statusStroke.Parent = statusFrame
+        statusLabel = createStyledTextLabel(statusFrame, UDim2.new(1, -10, 1, -10), UDim2.new(0, 5, 0, 5), "Status: No Target", Color3.fromRGB(255, 255, 0))
+    end
+
+    local function createHollowBox(size, color, parent)
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(0, size, 0, size)
+        box.BackgroundTransparency = 1
+        box.Parent = parent
+
+        local thickness = 2
+        local parts = {"Top", "Bottom", "Left", "Right"}
+        local positions = {
+            UDim2.new(0, 0, 0, 0), UDim2.new(0, 0, 1, -thickness),
+            UDim2.new(0, 0, 0, 0), UDim2.new(1, -thickness, 0, 0)
+        }
+        local sizes = {
+            UDim2.new(1, 0, 0, thickness), UDim2.new(1, 0, 0, thickness),
+            UDim2.new(0, thickness, 1, 0), UDim2.new(0, thickness, 1, 0)
+        }
+        
+        for i, part in ipairs(parts) do
+            local frame = Instance.new("Frame")
+            frame.Name = part
+            frame.Size = sizes[i]
+            frame.Position = positions[i]
+            frame.BackgroundColor3 = color
+            frame.BorderSizePixel = 0
+            frame.Parent = box
+            local stroke = Instance.new("UIStroke")
+            stroke.Thickness = 1
+            stroke.Color = Color3.fromRGB(255, 255, 255)
+            stroke.Transparency = 0.5
+            stroke.Parent = frame
+        end
+        
+        local velocityLabel = Instance.new("TextLabel", box)
+        velocityLabel.Size = UDim2.new(0, 80, 0, 20)
+        velocityLabel.Position = UDim2.new(0, -20, 0, -25)
+        velocityLabel.BackgroundTransparency = 1
+        velocityLabel.TextColor3 = color
+        velocityLabel.TextSize = 12
+        velocityLabel.Font = Enum.Font.SciFi
+        local velocityStroke = Instance.new("UIStroke")
+        velocityStroke.Thickness = 2
+        velocityStroke.Color = Color3.fromRGB(0, 0, 0)
+        velocityStroke.Transparency = 0
+        velocityStroke.Parent = velocityLabel
+
+        local distanceLabel = Instance.new("TextLabel", box)
+        distanceLabel.Size = UDim2.new(0, 80, 0, 20)
+        distanceLabel.Position = UDim2.new(0, -20, 0, 45)
+        distanceLabel.BackgroundTransparency = 1
+        distanceLabel.TextColor3 = color
+        distanceLabel.TextSize = 12
+        distanceLabel.Font = Enum.Font.SciFi
+        local distanceStroke = Instance.new("UIStroke")
+        distanceStroke.Thickness = 2
+        distanceStroke.Color = Color3.fromRGB(0, 0, 0)
+        distanceStroke.Transparency = 0
+        distanceStroke.Parent = distanceLabel
+        
+        local ttiLabel = Instance.new("TextLabel", box)
+        ttiLabel.Size = UDim2.new(0, 80, 0, 20)
+        ttiLabel.Position = UDim2.new(0, -20, 0, 65)
+        ttiLabel.BackgroundTransparency = 1
+        ttiLabel.TextColor3 = color
+        ttiLabel.TextSize = 12
+        ttiLabel.Font = Enum.Font.SciFi
+        ttiLabel.Text = "TTI: N/A"
+        local ttiStroke = Instance.new("UIStroke")
+        ttiStroke.Thickness = 2
+        ttiStroke.Color = Color3.fromRGB(0, 0, 0)
+        ttiStroke.Transparency = 0
+        ttiStroke.Parent = ttiLabel
+        
+        if color == Color3.fromRGB(255, 0, 0) then
+            local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+            local tween = TweenService:Create(box, tweenInfo, {Size = UDim2.new(0, size + 5, 0, size + 5)})
+            tween:Play()
+        end
+
+        return box, velocityLabel, distanceLabel, ttiLabel
+    end
+
+    local function createMissileTriangle(parent)
+        local triangle = Instance.new("Frame")
+        triangle.Size = UDim2.new(0, 40, 0, 40)
+        triangle.BackgroundTransparency = 1
+        triangle.Parent = parent
+        triangle.Name = "MissileTriangle"
+
+        local line1 = Instance.new("Frame")
+        line1.Size = UDim2.new(0, 2, 0, 20)
+        line1.Position = UDim2.new(0, 19, 0, 10)
+        line1.Rotation = -60
+        line1.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        line1.BorderSizePixel = 0
+        line1.Parent = triangle
+        local stroke1 = Instance.new("UIStroke")
+        stroke1.Thickness = 1
+        stroke1.Color = Color3.fromRGB(255, 255, 255)
+        stroke1.Transparency = 0.5
+        stroke1.Parent = line1
+
+        local line2 = Instance.new("Frame")
+        line2.Size = UDim2.new(0, 2, 0, 20)
+        line2.Position = UDim2.new(0, 19, 0, 10)
+        line2.Rotation = 60
+        line2.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        line2.BorderSizePixel = 0
+        line2.Parent = triangle
+        local stroke2 = Instance.new("UIStroke")
+        stroke2.Thickness = 1
+        stroke2.Color = Color3.fromRGB(255, 255, 255)
+        stroke2.Transparency = 0.5
+        stroke2.Parent = line2
+
+        local line3 = Instance.new("Frame")
+        line3.Size = UDim2.new(0, 24, 0, 2)
+        line3.Position = UDim2.new(0, 8, 0, 28)
+        line3.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        line3.BorderSizePixel = 0
+        line3.Parent = triangle
+        local stroke3 = Instance.new("UIStroke")
+        stroke3.Thickness = 1
+        stroke3.Color = Color3.fromRGB(255, 255, 255)
+        stroke3.Transparency = 0.5
+        stroke3.Parent = line3
+
+        return triangle
+    end
+
+    local function createOffScreenArrow(parent)
+        local arrow = Instance.new("Frame")
+        arrow.Size = UDim2.new(0, 20, 0, 20)
+        arrow.BackgroundTransparency = 1
+        arrow.Parent = parent
+
+        local line1 = Instance.new("Frame")
+        line1.Size = UDim2.new(0, 2, 0, 15)
+        line1.Position = UDim2.new(0, 9, 0, 5)
+        line1.Rotation = -45
+        line1.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+        line1.BorderSizePixel = 0
+        line1.Parent = arrow
+        local stroke1 = Instance.new("UIStroke")
+        stroke1.Thickness = 1
+        stroke1.Color = Color3.fromRGB(255, 255, 255)
+        stroke1.Transparency = 0.5
+        stroke1.Parent = line1
+
+        local line2 = Instance.new("Frame")
+        line2.Size = UDim2.new(0, 2, 0, 15)
+        line2.Position = UDim2.new(0, 9, 0, 5)
+        line2.Rotation = 45
+        line2.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+        line2.BorderSizePixel = 0
+        line2.Parent = arrow
+        local stroke2 = Instance.new("UIStroke")
+        stroke2.Thickness = 1
+        stroke2.Color = Color3.fromRGB(255, 255, 255)
+        stroke2.Transparency = 0.5
+        stroke2.Parent = line2
+
+        local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+        local tween = TweenService:Create(arrow, tweenInfo, {Transparency = 0.3})
+        tween:Play()
+
+        return arrow
+    end
+
+    local function updateMissileSpeed(deltaTime, targetVelocity, distance)
+        local targetSpeed = baseSpeed
+        if targetVelocity.Magnitude > baseSpeed * 0.6 then
+            targetSpeed = math.min(maxSpeed, baseSpeed + targetVelocity.Magnitude * 0.8)
+        end
+        if distance > 500 then
+            targetSpeed = math.min(maxSpeed, targetSpeed + distance * 0.1)
+        end
+        local speedAdjustment = (targetSpeed - currentSpeed) * 0.1
+        currentSpeed = math.clamp(currentSpeed + speedAdjustment, minSpeed, maxSpeed)
+    end
+
+    local function determineAspect(missilePosition, targetPosition, targetVelocity)
+        local relativePosition = targetPosition - missilePosition
+        local aspectAngle = math.deg(math.acos(targetVelocity.Unit:Dot(-relativePosition.Unit)))
+        if aspectAngle < 45 then
+            return "Front"
+        elseif aspectAngle > 135 then
+            return "Rear"
+        else
+            return "Side"
+        end
+    end
+
+    local function updatePing()
+        local currentTime = tick()
+        if currentTime - lastPingUpdate < pingUpdateInterval then
+            return
+        end
+        lastPingUpdate = currentTime
+
+        if not pingMeasurementActive then
+            print("Starting ping measurement for:", player.Name)
+            pingMeasurementActive = true
+            pingMeasurementStartTime = currentTime
+            pingRemote:FireServer()
+        end
+    end
+
+    pingRemote.OnClientEvent:Connect(function()
+        if pingMeasurementActive then
+            local pingTime = tick() - pingMeasurementStartTime
+            print("Ping response received, time:", pingTime, "for:", player.Name)
+            table.insert(pingMeasurements, pingTime / 2)
+            if #pingMeasurements > 5 then
+                table.remove(pingMeasurements, 1)
+            end
+            local sum = 0
+            for _, ping in ipairs(pingMeasurements) do
+                sum = sum + ping
+            end
+            actualPing = sum / #pingMeasurements
+            actualPing = math.clamp(actualPing, 0.1, 0.5)
+            pingMeasurementActive = false
+        end
+    end)
+
+    local function calculateLeadPosition(targetPosition, targetVelocity, missilePosition, missileSpeed, ping, targetAcceleration)
+        local relativePosition = targetPosition - missilePosition
+        local relativeVelocity = targetVelocity - missilePart.AssemblyLinearVelocity
+        local distance = relativePosition.Magnitude
+
+        local closingSpeed = math.max(50, missileSpeed - relativeVelocity:Dot(relativePosition.Unit) + 0.5 * targetAcceleration:Dot(relativePosition.Unit))
+        local tti = distance / closingSpeed
+        tti = math.clamp(tti, 0.1, 1.5)
+
+        local serverProcessingBuffer = 0.05
+        local latencyAdjustedTTI = tti + ping + serverProcessingBuffer
+
+        local velocityScale = math.sqrt(targetVelocity.Magnitude / 300)
+        velocityScale = math.clamp(velocityScale, 0.4, 1.2)
+        local distanceScale = math.clamp(distance / 2000, 0.5, 1.0)
+        local accelFactor = math.clamp(1 - targetAcceleration.Magnitude / 200, 0.6, 1.0)
+        local speedRatio = targetVelocity.Magnitude / missileSpeed
+        local minLead = math.clamp(0.3 + speedRatio * 0.2, 0.3, 0.5)
+        local maxLead = math.clamp(1.8 - speedRatio * 0.2, 0.8, 2.0)
+        local leadFactor = math.clamp(velocityScale * distanceScale * accelFactor, minLead, maxLead)
+
+        local baseLead = targetVelocity * (latencyAdjustedTTI * leadFactor) + 1.0 * targetAcceleration * latencyAdjustedTTI^2
+        if distance < 500 then
+            baseLead = baseLead + 0.5 * targetAcceleration * latencyAdjustedTTI^2
+        end
+
+        local pingAdjust = ping * targetVelocity.Magnitude / 450
+
+        return targetPosition + baseLead + (targetVelocity.Unit * pingAdjust), latencyAdjustedTTI, leadFactor
+    end
+
+    local function augmentedProportionalNavigation(missilePosition, targetPosition, targetVelocity, missileVelocity, targetAcceleration)
+        local relativePosition = targetPosition - missilePosition
+        local relativeVelocity = targetVelocity - missileVelocity
+        local losRate = relativeVelocity:Cross(relativePosition).Magnitude / math.max(10, relativePosition.Magnitude)
+
+        local aspectAngle = math.deg(math.acos(relativeVelocity.Unit:Dot(-relativePosition.Unit)))
+        local maneuverabilityFactor = math.clamp(targetAcceleration.Magnitude / 100, 0, 1)
+        local navigationGain = 3 + math.clamp((aspectAngle - 90) / 90, -1, 1) + maneuverabilityFactor
+        navigationGain = math.clamp(navigationGain, 2, 5)
+
+        local dynamicLambda = lambdaBase * math.clamp(1 - (missileVelocity.Magnitude / maxSpeed), 0.6, 2.5)
+        local correction = navigationGain * losRate * relativePosition.Unit
+
+        correction = correction + (navigationGain / 2) * targetAcceleration
+
+        if relativePosition.Magnitude < 300 then
+            correction = correction + relativePosition.Unit * (150 + relativePosition.Magnitude * 0.5)
+        elseif relativePosition.Magnitude > 1000 then
+            correction = correction + relativePosition.Unit * 200
+        end
+
+        local dampingFactor = 0.9
+        correction = correction * dampingFactor
+
+        return correction
+    end
+
+    local function preFireExplosion(targetPosition)
+        local remote = ReplicatedStorage:FindFirstChild("Remotes")
+        if remote then
+            local explodeEvent = remote:FindFirstChild("Explode")
+            if explodeEvent and explodeEvent:IsA("RemoteEvent") then
+                local explosiveBlocksFound = 0
+                for _, explosiveBlock in pairs(playerAircraft:GetDescendants()) do
+                    if explosiveBlock:IsA("Model") and explosiveBlock.Name == "ExplosiveBlock" then
+                        explosiveBlocksFound = explosiveBlocksFound + 1
+                        print("Pre-firing explosion at predicted position:", targetPosition, "with explosiveBlock:", explosiveBlock:GetFullName())
+                        explodeEvent:FireServer(explosiveBlock, 2500, 12, targetPosition)
+                        print("Explosion event fired for explosiveBlock:", explosiveBlock:GetFullName())
+                    end
+                end
+                if explosiveBlocksFound == 0 then
+                    warn("No ExplosiveBlock models found in playerAircraft!")
+                end
+            else
+                warn("Explode RemoteEvent missing in Remotes folder!")
+            end
+        else
+            warn("Remotes folder not found in ReplicatedStorage!")
+        end
+    end
+
+    local lastPredictedDistance = nil
+    local function autoDetonate(ping)
+        if not running or not lockTarget or not missilePart or hasExploded then return end
+        local targetPart = lockTarget.PrimaryPart
+        if not targetPart then
+            print("Target part is nil, skipping detonation")
+            return
+        end
+
+        local missilePosition = missilePart.Position
+        local targetPosition = targetPart.Position
+        local targetVelocity = targetPart.AssemblyLinearVelocity
+
+        local predictedPosition, tti, leadFactor = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, ping, lastTargetAcceleration)
+        local predictedDistance = (missilePosition - predictedPosition).Magnitude
+
+        if not targetVelocity or not ping then
+            print("Invalid targetVelocity or ping, cannot calculate detRange - targetVelocity:", targetVelocity, "ping:", ping)
+            return
+        end
+
+        local baseDetRange = 30 + targetVelocity.Magnitude / 25
+        local serverProcessingBuffer = 0.05
+        local latencyAdjustedDetRange = baseDetRange + (ping + serverProcessingBuffer) * 100
+        local detRange = math.clamp(latencyAdjustedDetRange, 20, 100)
+
+        if lastPredictedDistance and predictedDistance < lastPredictedDistance then
+            detRange = detRange * 1.2
+        end
+        lastPredictedDistance = predictedDistance
+
+        print("Checking detonation - Predicted Position:", predictedPosition, "Actual Position:", targetPosition, "Distance Error:", (predictedPosition - targetPosition).Magnitude, "Det Range:", detRange)
+
+        local aspect = determineAspect(missilePosition, targetPosition, targetVelocity)
+        if predictedDistance < detRange then
+            print("Hit! Aspect:", aspect, "Predicted Distance:", predictedDistance, "Det Range:", detRange, "Ping:", ping, "Lead Factor:", leadFactor)
+            preFireExplosion(predictedPosition)
+            hasExploded = true
+            if screenGui then
+                screenGui:Destroy()
+            end
+        else
+            print("Tracking... Aspect:", aspect, "Predicted Distance:", predictedDistance, "Det Range:", detRange, "Ping:", ping, "Lead Factor:", leadFactor)
+        end
+    end
+
+    local function updateTargetMarkers()
+        if not running or not missilePart or hasExploded then return end
+        for _, child in pairs(screenGui:GetChildren()) do
+            if child.Name ~= "SpeedFrame" and child.Name ~= "TargetInfoFrame" and child.Name ~= "StatusFrame" then
+                child:Destroy()
+            end
+        end
+        
+        local missilePos, missileOnScreen = Workspace.CurrentCamera:WorldToViewportPoint(missilePart.Position)
+        if missileOnScreen then
+            local triangle = createMissileTriangle(screenGui)
+            triangle.Position = UDim2.new(0, missilePos.X - 20, 0, missilePos.Y - 20)
+        end
+        
+        for _, model in pairs(Workspace:GetChildren()) do
+            if model:IsA("Model") and model.Name:match(" Aircraft$") and model ~= playerAircraft then
+                local targetPart = model.PrimaryPart
+                if targetPart then
+                    local distance = (targetPart.Position - missilePart.Position).Magnitude
+                    if distance < radarRange then
+                        local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
+                        if onScreen then
+                            local marker, velocityLabel, distanceLabel, ttiLabel = createHollowBox(40, lockTarget == model and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0), screenGui)
+                            marker.Position = UDim2.new(0, screenPos.X - 20, 0, screenPos.Y - 20)
+                            
+                            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+                                velocityLabel.Text = string.format("%.1f studs/s", targetPart.AssemblyLinearVelocity.Magnitude)
+                                distanceLabel.Text = string.format("%.1f studs", distance)
+                                local _, tti = calculateLeadPosition(targetPart.Position, targetPart.AssemblyLinearVelocity, missilePart.Position, currentSpeed, actualPing, lastTargetAcceleration)
+                                ttiLabel.Text = string.format("TTI: %.2f s", tti)
+                                
+                                marker.InputBegan:Connect(function(input)
+                                    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                                        lockTarget = model
+                                        currentSpeed = baseSpeed
+                                        print("Target acquired:", lockTarget.Name, "Distance:", distance, "Velocity:", targetPart.AssemblyLinearVelocity.Magnitude)
+                                    end
+                                end)
+                            else
+                                velocityLabel.Text = "Velocity: N/A"
+                                distanceLabel.Text = string.format("%.1f studs", distance)
+                                ttiLabel.Text = "TTI: N/A"
+                            end
+                        else
+                            local viewportSize = Workspace.CurrentCamera.ViewportSize
+                            local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+                            local direction = Vector2.new(screenPos.X - screenCenter.X, screenPos.Y - screenCenter.Y)
+                            local angle = math.deg(math.atan2(direction.Y, direction.X))
+                            
+                            local clampedPos = Vector2.new(
+                                math.clamp(screenPos.X, 20, viewportSize.X - 20),
+                                math.clamp(screenPos.Y, 20, viewportSize.Y - 20)
+                            )
+                            
+                            local arrow = createOffScreenArrow(screenGui)
+                            arrow.Position = UDim2.new(0, clampedPos.X - 10, 0, clampedPos.Y - 10)
+                            arrow.Rotation = angle
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local function onAircraftRemoved()
+        running = false
+        if screenGui then
+            screenGui:Destroy()
+        end
+    end
+
+    playerAircraft.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            onAircraftRemoved()
+        end
+    end)
+
+    setupAdditionalGUI()
+    local renderConnection
+    renderConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        if not running then
+            renderConnection:Disconnect()
+            return
+        end
+
+        updatePing()
+
+        if speedFrame and speedFrame.Parent then
+            speedLabel.Text = string.format("Missile Speed: %.1f studs/s", currentSpeed)
+        else
+            print("Speed indicator missing, recreating...")
+            setupAdditionalGUI()
+        end
+
+        if hasExploded then
+            statusLabel.Text = "Status: Exploded"
+            targetInfoFrame.Visible = false
+        elseif lockTarget then
+            statusLabel.Text = "Status: Tracking"
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+                targetInfoFrame.Visible = true
+                local distance = (targetPart.Position - missilePart.Position).Magnitude
+                local velocity = targetPart.AssemblyLinearVelocity.Magnitude
+                local predictedPosition, tti = calculateLeadPosition(targetPart.Position, targetPart.AssemblyLinearVelocity, missilePart.Position, currentSpeed, actualPing, lastTargetAcceleration)
+                
+                targetNameLabel.Text = "Target: " .. lockTarget.Name
+                targetDistanceLabel.Text = string.format("Distance: %.1f studs", distance)
+                targetVelocityLabel.Text = string.format("Velocity: %.1f studs/s", velocity)
+                targetTTILabel.Text = string.format("TTI: %.2f s", tti)
+            else
+                print("Target lost:", lockTarget and lockTarget.Name or "Unknown")
+                lockTarget = nil
+                targetInfoFrame.Visible = false
+            end
+        else
+            statusLabel.Text = "Status: No Target"
+            targetInfoFrame.Visible = false
+        end
+
+        updateTargetMarkers()
+        if lockTarget and missilePart and not hasExploded then
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart and targetPart.Parent and targetPart.AssemblyLinearVelocity then
+                local missilePosition = missilePart.Position
+                local targetPosition = targetPart.Position
+                local targetVelocity = targetPart.AssemblyLinearVelocity
+                local distance = (targetPosition - missilePosition).Magnitude
+                
+                updateMissileSpeed(deltaTime, targetVelocity, distance)
+                
+                local currentTime = tick()
+                local targetAcceleration = Vector3.new(0, 0, 0)
+                if lastTargetVelocity then
+                    local deltaTimeSinceLast = currentTime - lastTargetTime
+                    if deltaTimeSinceLast > 0 then
+                        local rawAcceleration = (targetVelocity - lastTargetVelocity) / deltaTimeSinceLast
+                        lastTargetAcceleration = alpha * rawAcceleration + (1 - alpha) * lastTargetAcceleration
+                        targetAcceleration = lastTargetAcceleration
+                    end
+                end
+                lastTargetVelocity = targetVelocity
+                lastTargetTime = currentTime
+
+                local predictedPosition, _ = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, actualPing, targetAcceleration)
+                local missileVelocity = missilePart.AssemblyLinearVelocity
+                local correction = augmentedProportionalNavigation(missilePosition, predictedPosition, targetVelocity, missileVelocity, targetAcceleration)
+
+                local desiredDirection = (predictedPosition - missilePosition).Unit + correction.Unit * 0.2
+                local desiredVelocity
+                if desiredDirection.Magnitude > 0 then
+                    desiredVelocity = desiredDirection.Unit * currentSpeed
+                    lastValidDirection = desiredDirection.Unit
+                else
+                    desiredVelocity = (lastValidDirection or (predictedPosition - missilePosition).Unit) * currentSpeed
+                    print("Warning: Desired direction invalid, using fallback direction")
+                end
+
+                local applySmoothing = false
+                if smoothedMissileVelocity then
+                    local currentDirection = missilePart.AssemblyLinearVelocity.Unit
+                    local desiredDirectionUnit = desiredDirection.Magnitude > 0 and desiredDirection.Unit or currentDirection
+                    local angleBetween = math.acos(currentDirection:Dot(desiredDirectionUnit))
+                    applySmoothing = angleBetween > smoothingThreshold
+                end
+
+                if applySmoothing then
+                    local smoothingFactor = math.clamp(distance / 1000, 0.3, 0.7)
+                    if smoothedMissileVelocity == nil then
+                        smoothedMissileVelocity = desiredVelocity
+                    else
+                        smoothedMissileVelocity = smoothingFactor * smoothedMissileVelocity + (1 - smoothingFactor) * desiredVelocity
+                    end
+                else
+                    smoothedMissileVelocity = desiredVelocity
+                end
+
+                if smoothedMissileVelocity.Magnitude > 0 then
+                    smoothedMissileVelocity = smoothedMissileVelocity.Unit * currentSpeed
+                else
+                    smoothedMissileVelocity = desiredVelocity
+                end
+
+                missilePart.AssemblyLinearVelocity = smoothedMissileVelocity
+
+                print("Missile State - Speed:", currentSpeed, "Distance to Target:", distance, "Velocity Magnitude:", missilePart.AssemblyLinearVelocity.Magnitude, "Acceleration:", targetAcceleration.Magnitude)
+
+                autoDetonate(actualPing)
+            else
+                print("Target invalid during tracking:", lockTarget and lockTarget.Name or "Unknown")
+                lockTarget = nil
+                targetInfoFrame.Visible = false
+            end
+        end
+    end)
+end
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Tracker v2', function()
+        local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerAircraft = Workspace:FindFirstChild(player.Name .. " Aircraft")
+
+if not playerAircraft then
+    warn("No aircraft found, you’re grounded!")
+    return
+end
+
+print("Locked onto your ride:", playerAircraft.Name)
+
+
+local missileModel = playerAircraft:FindFirstChild("AnchoredBlockStd")
+if not missileModel or not missileModel:IsA("Model") then
+    warn("Where’s the missile? ‘AnchoredBlockStd’ missing!")
+    return
+end
+
+if not missileModel.PrimaryPart then
+    warn("Set a damn PrimaryPart for ‘AnchoredBlockStd’!")
+    return
+end
+
+local missilePart = missileModel.PrimaryPart
+missilePart.Anchored = false
+print("Missile ready to ruin someone’s day:", missilePart.Name)
+
+
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = player:FindFirstChildOfClass("PlayerGui")
+screenGui.Name = "RadarGui"
+screenGui.IgnoreGuiInset = true
+
+local radarRange = 10000
+local lockTarget = nil
+local baseSpeed = 600
+local maxSpeed = 1000
+local acceleration = 150
+local minSpeed = 200
+local currentSpeed = baseSpeed
+local lambdaBase = 40
+local running = true
+local hasExploded = false
+
+local lastTargetVelocity = nil
+local lastTargetTime = 0
+
+local speedFrame, speedLabel
+local targetInfoFrame, targetNameLabel, targetDistanceLabel, targetVelocityLabel, targetTTILabel
+local statusFrame, statusLabel
+
+local function setupAdditionalGUI()
+    speedFrame = Instance.new("Frame")
+    speedFrame.Name = "SpeedFrame"
+    speedFrame.Size = UDim2.new(0, 220, 0, 60)
+    speedFrame.Position = UDim2.new(0, 20, 0, 60)
+    speedFrame.BackgroundTransparency = 0.6
+    speedFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    speedFrame.BorderSizePixel = 0
+    speedFrame.ZIndex = 10
+    speedFrame.Parent = screenGui
+
+    local speedGradient = Instance.new("UIGradient")
+    speedGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+    })
+    speedGradient.Parent = speedFrame
+
+    local speedStroke = Instance.new("UIStroke")
+    speedStroke.Thickness = 2
+    speedStroke.Color = Color3.fromRGB(0, 255, 255)
+    speedStroke.Transparency = 0.5
+    speedStroke.Parent = speedFrame
+
+    speedLabel = Instance.new("TextLabel")
+    speedLabel.Size = UDim2.new(1, -10, 1, -10)
+    speedLabel.Position = UDim2.new(0, 5, 0, 5)
+    speedLabel.BackgroundTransparency = 1
+    speedLabel.Text = "Missile Speed: 600.0 studs/s"
+    speedLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+    speedLabel.TextSize = 18
+    speedLabel.Font = Enum.Font.SciFi
+    speedLabel.TextXAlignment = Enum.TextXAlignment.Left
+    speedLabel.ZIndex = 11
+    speedLabel.Parent = speedFrame
+
+    local textStroke = Instance.new("UIStroke")
+    textStroke.Thickness = 1
+    textStroke.Color = Color3.fromRGB(0, 0, 0)
+    textStroke.Transparency = 0
+    textStroke.Parent = speedLabel
+
+    print("Speed indicator created at position:", speedFrame.Position)
+
+    targetInfoFrame = Instance.new("Frame")
+    targetInfoFrame.Name = "TargetInfoFrame"
+    targetInfoFrame.Size = UDim2.new(0, 250, 0, 120)
+    targetInfoFrame.Position = UDim2.new(1, -260, 1, -130)
+    targetInfoFrame.BackgroundTransparency = 0.8
+    targetInfoFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    targetInfoFrame.BorderSizePixel = 0
+    targetInfoFrame.ZIndex = 10
+    targetInfoFrame.Parent = screenGui
+
+    local targetGradient = Instance.new("UIGradient")
+    targetGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+    })
+    targetGradient.Parent = targetInfoFrame
+
+    local targetStroke = Instance.new("UIStroke")
+    targetStroke.Thickness = 2
+    targetStroke.Color = Color3.fromRGB(255, 0, 255)
+    targetStroke.Transparency = 0.5
+    targetStroke.Parent = targetInfoFrame
+
+    targetNameLabel = Instance.new("TextLabel")
+    targetNameLabel.Size = UDim2.new(1, -10, 0, 20)
+    targetNameLabel.Position = UDim2.new(0, 5, 0, 5)
+    targetNameLabel.BackgroundTransparency = 1
+    targetNameLabel.Text = "Target: None"
+    targetNameLabel.TextColor3 = Color3.fromRGB(255, 0, 255)
+    targetNameLabel.TextSize = 14
+    targetNameLabel.Font = Enum.Font.SciFi
+    targetNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetNameLabel.ZIndex = 11
+    targetNameLabel.Parent = targetInfoFrame
+
+    targetDistanceLabel = Instance.new("TextLabel")
+    targetDistanceLabel.Size = UDim2.new(1, -10, 0, 20)
+    targetDistanceLabel.Position = UDim2.new(0, 5, 0, 25)
+    targetDistanceLabel.BackgroundTransparency = 1
+    targetDistanceLabel.Text = "Distance: N/A"
+    targetDistanceLabel.TextColor3 = Color3.fromRGB(255, 0, 255)
+    targetDistanceLabel.TextSize = 14
+    targetDistanceLabel.Font = Enum.Font.SciFi
+    targetDistanceLabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetDistanceLabel.ZIndex = 11
+    targetDistanceLabel.Parent = targetInfoFrame
+
+    targetVelocityLabel = Instance.new("TextLabel")
+    targetVelocityLabel.Size = UDim2.new(1, -10, 0, 20)
+    targetVelocityLabel.Position = UDim2.new(0, 5, 0, 45)
+    targetVelocityLabel.BackgroundTransparency = 1
+    targetVelocityLabel.Text = "Velocity: N/A"
+    targetVelocityLabel.TextColor3 = Color3.fromRGB(255, 0, 255)
+    targetVelocityLabel.TextSize = 14
+    targetVelocityLabel.Font = Enum.Font.SciFi
+    targetVelocityLabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetVelocityLabel.ZIndex = 11
+    targetVelocityLabel.Parent = targetInfoFrame
+
+    targetTTILabel = Instance.new("TextLabel")
+    targetTTILabel.Size = UDim2.new(1, -10, 0, 20)
+    targetTTILabel.Position = UDim2.new(0, 5, 0, 65)
+    targetTTILabel.BackgroundTransparency = 1
+    targetTTILabel.Text = "TTI: N/A"
+    targetTTILabel.TextColor3 = Color3.fromRGB(255, 0, 255)
+    targetTTILabel.TextSize = 14
+    targetTTILabel.Font = Enum.Font.SciFi
+    targetTTILabel.TextXAlignment = Enum.TextXAlignment.Left
+    targetTTILabel.ZIndex = 11
+    targetTTILabel.Parent = targetInfoFrame
+
+    statusFrame = Instance.new("Frame")
+    statusFrame.Name = "StatusFrame"
+    statusFrame.Size = UDim2.new(0, 150, 0, 30)
+    statusFrame.Position = UDim2.new(1, -160, 0, 60)
+    statusFrame.BackgroundTransparency = 0.8
+    statusFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+    statusFrame.BorderSizePixel = 0
+    statusFrame.ZIndex = 10
+    statusFrame.Parent = screenGui
+
+    local statusGradient = Instance.new("UIGradient")
+    statusGradient.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(50, 50, 80)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(20, 20, 30))
+    })
+    statusGradient.Parent = statusFrame
+
+    local statusStroke = Instance.new("UIStroke")
+    statusStroke.Thickness = 2
+    statusStroke.Color = Color3.fromRGB(255, 255, 0)
+    statusStroke.Transparency = 0.5
+    statusStroke.Parent = statusFrame
+
+    statusLabel = Instance.new("TextLabel")
+    statusLabel.Size = UDim2.new(1, -10, 1, -10)
+    statusLabel.Position = UDim2.new(0, 5, 0, 5)
+    statusLabel.BackgroundTransparency = 1
+    statusLabel.Text = "Status: No Target"
+    statusLabel.TextColor3 = Color3.fromRGB(255, 255, 0)
+    statusLabel.TextSize = 14
+    statusLabel.Font = Enum.Font.SciFi
+    statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+    statusLabel.ZIndex = 11
+    statusLabel.Parent = statusFrame
+end
+
+setupAdditionalGUI()
+
+local function onAircraftRemoved()
+    running = false
+    if screenGui then
+        screenGui:Destroy()
+    end
+end
+
+playerAircraft.AncestryChanged:Connect(function(_, parent)
+    if not parent then
+        onAircraftRemoved()
+    end
+end)
+
+local function createHollowBox(size, color, parent)
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, size, 0, size)
+    box.BackgroundTransparency = 1
+    box.Parent = parent
+
+    local thickness = 2
+    local parts = {"Top", "Bottom", "Left", "Right"}
+    local positions = {
+        UDim2.new(0, 0, 0, 0), UDim2.new(0, 0, 1, -thickness),
+        UDim2.new(0, 0, 0, 0), UDim2.new(1, -thickness, 0, 0)
+    }
+    local sizes = {
+        UDim2.new(1, 0, 0, thickness), UDim2.new(1, 0, 0, thickness),
+        UDim2.new(0, thickness, 1, 0), UDim2.new(0, thickness, 1, 0)
+    }
+    
+    for i, part in ipairs(parts) do
+        local frame = Instance.new("Frame")
+        frame.Name = part
+        frame.Size = sizes[i]
+        frame.Position = positions[i]
+        frame.BackgroundColor3 = color
+        frame.BorderSizePixel = 0
+        frame.Parent = box
+
+        local stroke = Instance.new("UIStroke")
+        stroke.Thickness = 1
+        stroke.Color = Color3.fromRGB(255, 255, 255)
+        stroke.Transparency = 0.5
+        stroke.Parent = frame
+    end
+    
+    local velocityLabel = Instance.new("TextLabel", box)
+    velocityLabel.Size = UDim2.new(0, 80, 0, 20)
+    velocityLabel.Position = UDim2.new(0, -20, 0, -25)
+    velocityLabel.BackgroundTransparency = 1
+    velocityLabel.TextColor3 = color
+    velocityLabel.TextSize = 12
+    velocityLabel.Font = Enum.Font.SciFi
+    local velocityStroke = Instance.new("UIStroke")
+    velocityStroke.Thickness = 2
+    velocityStroke.Color = Color3.fromRGB(0, 0, 0)
+    velocityStroke.Transparency = 0
+    velocityStroke.Parent = velocityLabel
+
+    local distanceLabel = Instance.new("TextLabel", box)
+    distanceLabel.Size = UDim2.new(0, 80, 0, 20)
+    distanceLabel.Position = UDim2.new(0, -20, 0, 45)
+    distanceLabel.BackgroundTransparency = 1
+    distanceLabel.TextColor3 = color
+    distanceLabel.TextSize = 12
+    distanceLabel.Font = Enum.Font.SciFi
+    local distanceStroke = Instance.new("UIStroke")
+    distanceStroke.Thickness = 2
+    distanceStroke.Color = Color3.fromRGB(0, 0, 0)
+    distanceStroke.Transparency = 0
+    distanceStroke.Parent = distanceLabel
+    
+    local ttiLabel = Instance.new("TextLabel", box)
+    ttiLabel.Size = UDim2.new(0, 80, 0, 20)
+    ttiLabel.Position = UDim2.new(0, -20, 0, 65)
+    ttiLabel.BackgroundTransparency = 1
+    ttiLabel.TextColor3 = color
+    ttiLabel.TextSize = 12
+    ttiLabel.Font = Enum.Font.SciFi
+    ttiLabel.Text = "TTI: N/A"
+    local ttiStroke = Instance.new("UIStroke")
+    ttiStroke.Thickness = 2
+    ttiStroke.Color = Color3.fromRGB(0, 0, 0)
+    ttiStroke.Transparency = 0
+    ttiStroke.Parent = ttiLabel
+    
+    if color == Color3.fromRGB(255, 0, 0) then
+        local tweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+        local tween = TweenService:Create(box, tweenInfo, {Size = UDim2.new(0, size + 5, 0, size + 5)})
+        tween:Play()
+    end
+
+    return box, velocityLabel, distanceLabel, ttiLabel
+end
+
+local function createMissileTriangle(parent)
+    local triangle = Instance.new("Frame")
+    triangle.Size = UDim2.new(0, 40, 0, 40)
+    triangle.BackgroundTransparency = 1
+    triangle.Parent = parent
+    triangle.Name = "MissileTriangle"
+
+    local line1 = Instance.new("Frame")
+    line1.Size = UDim2.new(0, 2, 0, 20)
+    line1.Position = UDim2.new(0, 19, 0, 10)
+    line1.Rotation = -60
+    line1.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    line1.BorderSizePixel = 0
+    line1.Parent = triangle
+
+    local stroke1 = Instance.new("UIStroke")
+    stroke1.Thickness = 1
+    stroke1.Color = Color3.fromRGB(255, 255, 255)
+    stroke1.Transparency = 0.5
+    stroke1.Parent = line1
+
+    local line2 = Instance.new("Frame")
+    line2.Size = UDim2.new(0, 2, 0, 20)
+    line2.Position = UDim2.new(0, 19, 0, 10)
+    line2.Rotation = 60
+    line2.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    line2.BorderSizePixel = 0
+    line2.Parent = triangle
+
+    local stroke2 = Instance.new("UIStroke")
+    stroke2.Thickness = 1
+    stroke2.Color = Color3.fromRGB(255, 255, 255)
+    stroke2.Transparency = 0.5
+    stroke2.Parent = line2
+
+    local line3 = Instance.new("Frame")
+    line3.Size = UDim2.new(0, 24, 0, 2)
+    line3.Position = UDim2.new(0, 8, 0, 28)
+    line3.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+    line3.BorderSizePixel = 0
+    line3.Parent = triangle
+
+    local stroke3 = Instance.new("UIStroke")
+    stroke3.Thickness = 1
+    stroke3.Color = Color3.fromRGB(255, 255, 255)
+    stroke3.Transparency = 0.5
+    stroke3.Parent = line3
+
+    return triangle
+end
+
+local function createOffScreenArrow(parent)
+    local arrow = Instance.new("Frame")
+    arrow.Size = UDim2.new(0, 20, 0, 20)
+    arrow.BackgroundTransparency = 1
+    arrow.Parent = parent
+
+    local line1 = Instance.new("Frame")
+    line1.Size = UDim2.new(0, 2, 0, 15)
+    line1.Position = UDim2.new(0, 9, 0, 5)
+    line1.Rotation = -45
+    line1.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+    line1.BorderSizePixel = 0
+    line1.Parent = arrow
+
+    local stroke1 = Instance.new("UIStroke")
+    stroke1.Thickness = 1
+    stroke1.Color = Color3.fromRGB(255, 255, 255)
+    stroke1.Transparency = 0.5
+    stroke1.Parent = line1
+
+    local line2 = Instance.new("Frame")
+    line2.Size = UDim2.new(0, 2, 0, 15)
+    line2.Position = UDim2.new(0, 9, 0, 5)
+    line2.Rotation = 45
+    line2.BackgroundColor3 = Color3.fromRGB(0, 255, 150)
+    line2.BorderSizePixel = 0
+    line2.Parent = arrow
+
+    local stroke2 = Instance.new("UIStroke")
+    stroke2.Thickness = 1
+    stroke2.Color = Color3.fromRGB(255, 255, 255)
+    stroke2.Transparency = 0.5
+    stroke2.Parent = line2
+
+    local tweenInfo = TweenInfo.new(0.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+    local tween = TweenService:Create(arrow, tweenInfo, {Transparency = 0.3})
+    tween:Play()
+
+    return arrow
+end
+
+local function calculateLeadPosition(targetPosition, targetVelocity, missilePosition, missileSpeed, ping)
+    local distance = (targetPosition - missilePosition).Magnitude
+    local relativeVelocity = targetVelocity - missilePart.AssemblyLinearVelocity
+    local closingSpeed = math.max(50, missileSpeed - relativeVelocity:Dot((targetPosition - missilePosition).Unit))
+    
+    local tti = distance / closingSpeed
+    tti = math.clamp(tti, 0.1, 2)
+    
+    local leadFactor = math.clamp(targetVelocity.Magnitude / 100, 0.5, 3) * math.clamp(distance / 2000, 0.8, 2.5)
+    local baseLead = targetVelocity * (tti * leadFactor)
+    
+    local pingAdjust = ping * targetVelocity.Magnitude / 1000
+    return targetPosition + baseLead + (targetVelocity.Unit * pingAdjust), tti
+end
+
+local function augmentedProportionalNavigation(missilePosition, targetPosition, targetVelocity, missileVelocity, targetAcceleration)
+    local relativePosition = targetPosition - missilePosition
+    local relativeVelocity = targetVelocity - missileVelocity
+    local losRate = relativeVelocity:Cross(relativePosition).Magnitude / math.max(1, relativePosition.Magnitude)
+    local dynamicLambda = lambdaBase * math.clamp(1 - (missileVelocity.Magnitude / maxSpeed), 0.6, 2.5)
+    
+    local navigationGain = 3
+    local correction = navigationGain * losRate * relativePosition.Unit
+    correction = correction + (navigationGain / 2) * targetAcceleration
+    
+    if relativePosition.Magnitude < 200 then
+        correction = correction + relativePosition.Unit * 100
+    end
+
+    return correction
+end
+
+local function updateTargetMarkers()
+    if not running or not missilePart or hasExploded then return end
+    for _, child in pairs(screenGui:GetChildren()) do
+        if child.Name ~= "SpeedFrame" and child.Name ~= "TargetInfoFrame" and child.Name ~= "StatusFrame" then
+            child:Destroy()
+        end
+    end
+    
+    local missilePos, missileOnScreen = Workspace.CurrentCamera:WorldToViewportPoint(missilePart.Position)
+    if missileOnScreen then
+        local triangle = createMissileTriangle(screenGui)
+        triangle.Position = UDim2.new(0, missilePos.X - 20, 0, missilePos.Y - 20)
+    end
+    
+    for _, model in pairs(Workspace:GetChildren()) do
+        if model:IsA("Model") and model.Name:match(" Aircraft$") and model ~= playerAircraft then
+            local targetPart = model.PrimaryPart
+            if targetPart then
+                local distance = (targetPart.Position - missilePart.Position).Magnitude
+                if distance < radarRange then
+                    local screenPos, onScreen = Workspace.CurrentCamera:WorldToViewportPoint(targetPart.Position)
+                    if onScreen then
+                        local marker, velocityLabel, distanceLabel, ttiLabel = createHollowBox(40, lockTarget == model and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 255, 0), screenGui)
+                        marker.Position = UDim2.new(0, screenPos.X - 20, 0, screenPos.Y - 20)
+                        
+                        velocityLabel.Text = string.format("%.1f studs/s", targetPart.AssemblyLinearVelocity.Magnitude)
+                        distanceLabel.Text = string.format("%.1f studs", distance)
+                        local _, tti = calculateLeadPosition(targetPart.Position, targetPart.AssemblyLinearVelocity, missilePart.Position, currentSpeed, 0.2)
+                        ttiLabel.Text = string.format("TTI: %.2f s", tti)
+                        
+                        marker.InputBegan:Connect(function(input)
+                            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                                lockTarget = model
+                                currentSpeed = baseSpeed
+                                print("Target acquired:", lockTarget.Name)
+                            end
+                        end)
+                    else
+                        local viewportSize = Workspace.CurrentCamera.ViewportSize
+                        local screenCenter = Vector2.new(viewportSize.X / 2, viewportSize.Y / 2)
+                        local direction = Vector2.new(screenPos.X - screenCenter.X, screenPos.Y - screenCenter.Y)
+                        local angle = math.deg(math.atan2(direction.Y, direction.X))
+                        
+                        local clampedPos = Vector2.new(
+                            math.clamp(screenPos.X, 20, viewportSize.X - 20),
+                            math.clamp(screenPos.Y, 20, viewportSize.Y - 20)
+                        )
+                        
+                        local arrow = createOffScreenArrow(screenGui)
+                        arrow.Position = UDim2.new(0, clampedPos.X - 10, 0, clampedPos.Y - 10)
+                        arrow.Rotation = angle
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function preFireExplosion(targetPosition)
+    local remote = ReplicatedStorage:FindFirstChild("Remotes")
+    if remote then
+        local explodeEvent = remote:FindFirstChild("Explode")
+        if explodeEvent and explodeEvent:IsA("RemoteEvent") then
+            for _, explosiveBlock in pairs(playerAircraft:GetDescendants()) do
+                if explosiveBlock:IsA("Model") and explosiveBlock.Name == "ExplosiveBlock" then
+                    print("Pre-firing explosion at predicted position:", targetPosition)
+                    explodeEvent:FireServer(explosiveBlock, 2500, 12, targetPosition)
+                end
+            end
+        else
+            warn("Explode RemoteEvent missing!")
+        end
+    else
+        warn("Remotes folder not found!")
+    end
+end
+
+local function autoDetonate()
+    if not running or not lockTarget or not missilePart or hasExploded then return end
+    local targetPart = lockTarget.PrimaryPart
+    if not targetPart then return end
+
+    local missilePosition = missilePart.Position
+    local targetPosition = targetPart.Position
+    local targetVelocity = targetPart.AssemblyLinearVelocity
+
+    local ping = 0.1
+    local predictedPosition = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, ping)
+    local predictedDistance = (missilePosition - predictedPosition).Magnitude
+
+    local detRange = math.clamp(10 + targetVelocity.Magnitude / 50, 10, 25)
+    if predictedDistance < detRange then
+        print("Missile closing in, pre-firing at predicted position!")
+        preFireExplosion(predictedPosition)
+        hasExploded = true
+        if screenGui then
+            screenGui:Destroy()
+        end
+    end
+end
+
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    if running then
+        if speedFrame and speedFrame.Parent then
+            speedLabel.Text = string.format("Missile Speed: %.1f studs/s", currentSpeed)
+        else
+            print("Speed indicator missing, recreating...")
+            setupAdditionalGUI()
+        end
+
+        if hasExploded then
+            statusLabel.Text = "Status: Expl mezelfoded"
+            targetInfoFrame.Visible = false
+        elseif lockTarget then
+            statusLabel.Text = "Status: Tracking"
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart then
+                targetInfoFrame.Visible = true
+                local distance = (targetPart.Position - missilePart.Position).Magnitude
+                local velocity = targetPart.AssemblyLinearVelocity.Magnitude
+                local predictedPosition, tti = calculateLeadPosition(targetPart.Position, targetPart.AssemblyLinearVelocity, missilePart.Position, currentSpeed, 0.2)
+                
+                targetNameLabel.Text = "Target: " .. lockTarget.Name
+                targetDistanceLabel.Text = string.format("Distance: %.1f studs", distance)
+                targetVelocityLabel.Text = string.format("Velocity: %.1f studs/s", velocity)
+                targetTTILabel.Text = string.format("TTI: %.2f s", tti)
+            else
+                lockTarget = nil
+                targetInfoFrame.Visible = false
+            end
+        else
+            statusLabel.Text = "Status: No Target"
+            targetInfoFrame.Visible = false
+        end
+
+        updateTargetMarkers()
+        if lockTarget and missilePart and not hasExploded then
+            local targetPart = lockTarget.PrimaryPart
+            if targetPart then
+                local missilePosition = missilePart.Position
+                local targetPosition = targetPart.Position
+                local targetVelocity = targetPart.AssemblyLinearVelocity
+                local ping = 0.1
+
+                local currentTime = tick()
+                local targetAcceleration = Vector3.new(0, 0, 0)
+                if lastTargetVelocity then
+                    local deltaTimeSinceLast = currentTime - lastTargetTime
+                    if deltaTimeSinceLast > 0 then
+                        targetAcceleration = (targetVelocity - lastTargetVelocity) / deltaTimeSinceLast
+                    end
+                end
+                lastTargetVelocity = targetVelocity
+                lastTargetTime = currentTime
+
+                local predictedPosition = calculateLeadPosition(targetPosition, targetVelocity, missilePosition, currentSpeed, ping)
+                local missileVelocity = missilePart.AssemblyLinearVelocity
+                local correction = augmentedProportionalNavigation(missilePosition, predictedPosition, targetVelocity, missileVelocity, targetAcceleration)
+
+                currentSpeed = math.clamp(currentSpeed + acceleration * deltaTime, minSpeed, maxSpeed)
+                local desiredDirection = (predictedPosition - missilePosition).Unit + correction.Unit * 0.2
+                missilePart.AssemblyLinearVelocity = desiredDirection.Unit * currentSpeed
+
+                autoDetonate()
+            end
+        end
+    end
+end)
+    print('Activated!')
+end)
+--===============================================================================================
+
+local LeftGroupBox = Tabs.Main:AddLeftGroupbox(' ') 
+
+local MyButton = LeftGroupBox:AddButton('EarthBending', function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/aRfkmAm7"))()
+    print('Activated!')
+end)
+
+local MyButton = LeftGroupBox:AddButton('Free Jetpack', function()
+        local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoid = character:WaitForChild("Humanoid")
+local hrp = character:WaitForChild("HumanoidRootPart")
+
+local offset = CFrame.new(0, 0.2, 0.7)
+local jetpackTemplate = ReplicatedStorage:WaitForChild("Jetpack")
+
+local upPressed, downPressed = false, false
+local maxFlySpeed = 25
+local verticalVel = 0
+local easing = 0.1
+local jetpackActive = false
+local bv
+local scriptEnabled = true
+
+local jetpackClone
+local jetpackScript
+local partsModel
+local idleTrack
+local fireParts = {}
+local animator = humanoid:FindFirstChildWhichIsA("Animator") or Instance.new("Animator", humanoid)
+
+local startHeight = 10
+local stopHeight = 4
+
+local function spawnJetpack()
+    jetpackClone = jetpackTemplate:Clone()
+    jetpackClone.Parent = workspace
+
+    jetpackScript = jetpackClone:FindFirstChildWhichIsA("Script")
+    partsModel = jetpackScript:FindFirstChild("Jetpack")
+
+    for _, part in ipairs(partsModel:GetDescendants()) do
+        if part:IsA("BasePart") then
+            part.Transparency = 0
+            part.CanCollide = false
+            part.Anchored = false
+        end
+    end
+
+    if not partsModel.PrimaryPart then
+        partsModel.PrimaryPart = partsModel:FindFirstChildWhichIsA("BasePart")
+    end
+
+    partsModel:SetPrimaryPartCFrame(hrp.CFrame * offset)
+    local weld = Instance.new("WeldConstraint")
+    weld.Part0 = hrp
+    weld.Part1 = partsModel.PrimaryPart
+    weld.Parent = partsModel.PrimaryPart
+
+    local idleAnim = humanoid.RigType == Enum.HumanoidRigType.R6 and jetpackScript:FindFirstChild("Idle") or jetpackScript:FindFirstChild("IdleR15")
+    if idleAnim and idleAnim:IsA("Animation") then
+        idleTrack = animator:LoadAnimation(idleAnim)
+    end
+
+    fireParts = {}
+    for _, fp in ipairs(jetpackScript:GetDescendants()) do
+        if fp.Name == "FirePart" then
+            table.insert(fireParts, fp)
+        end
+    end
+end
+
+local function activateFireParts()
+    for _, fp in ipairs(fireParts) do
+        for _, child in ipairs(fp:GetDescendants()) do
+            if child:IsA("ParticleEmitter") or child:IsA("Light") then
+                child.Enabled = true
+            end
+        end
+    end
+end
+
+local function deactivateFireParts()
+    for _, fp in ipairs(fireParts) do
+        for _, child in ipairs(fp:GetDescendants()) do
+            if child:IsA("ParticleEmitter") or child:IsA("Light") then
+                child.Enabled = false
+            end
+        end
+    end
+end
+
+spawnJetpack()
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.E then upPressed = true end
+    if input.KeyCode == Enum.KeyCode.Q then downPressed = true end
+    if input.KeyCode == Enum.KeyCode.T then
+        scriptEnabled = not scriptEnabled
+
+        if not scriptEnabled then
+            if idleTrack and idleTrack.IsPlaying then idleTrack:Stop() end
+            idleTrack = nil
+
+            if jetpackClone then
+                jetpackClone:Destroy()
+                jetpackClone = nil
+                partsModel = nil
+                fireParts = {}
+            end
+
+            if bv then bv:Destroy() bv = nil end
+            verticalVel = 0
+        else
+            spawnJetpack()
+        end
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.E then upPressed = false end
+    if input.KeyCode == Enum.KeyCode.Q then downPressed = false end
+end)
+
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+rayParams.FilterDescendantsInstances = {character}
+
+RunService.RenderStepped:Connect(function(dt)
+    if not scriptEnabled then return end
+    if not partsModel then return end
+
+    local origin = hrp.Position
+    local groundRay = workspace:Raycast(origin, Vector3.new(0, -2, 0), rayParams)
+    local onGround = groundRay ~= nil
+
+    local longRay = workspace:Raycast(origin, Vector3.new(0, -1000, 0), rayParams)
+    local distToGround = longRay and (origin.Y - longRay.Position.Y) or math.huge
+
+    local shouldFly
+    if distToGround > startHeight and not onGround then
+        shouldFly = true
+    elseif distToGround <= stopHeight or onGround then
+        shouldFly = false
+    else
+        shouldFly = jetpackActive
+    end
+    jetpackActive = shouldFly
+
+    if jetpackActive then
+        if not bv then
+            bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(0, math.huge, 0)
+            bv.P = 1250
+            bv.Velocity = Vector3.new(0, 0, 0)
+            bv.Parent = hrp
+        end
+
+        if idleTrack and not idleTrack.IsPlaying then idleTrack:Play() end
+        activateFireParts()
+
+        local targetVel = 0
+        if upPressed then targetVel = maxFlySpeed end
+        if downPressed then targetVel = -maxFlySpeed end
+        verticalVel = verticalVel + (targetVel - verticalVel) * easing
+        bv.Velocity = Vector3.new(0, verticalVel, 0)
+    else
+        if bv then bv:Destroy() bv = nil end
+        if idleTrack and idleTrack.IsPlaying then idleTrack:Stop() end
+        deactivateFireParts()
+        verticalVel = 0
+    end
+end)
+    print('Activated!')
+end)
+
+MyButton:AddTooltip('NOT ServerSided but still cool')
+
+--===============================================================================================
+
+local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
+
+RightGroupBox:AddSlider('FlagName', {
+    Text = 'WalkSpeed',
+
+    Default = 0,
+    Min = 0,
+    Max = 5,
+    Rounding = 1,
+
+    Compact = false, 
+})
+local MyButton = RightGroupBox:AddButton('InfiniteYield', function()
+loadstring(game:HttpGet(('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'),true))()
+    print('Activated')
+end)
+
+local MyButton = RightGroupBox:AddButton('Close UI', function()
+        Library:Unload()
+    print('Activated')
+end)
+
+
+
+--===============================================================================================
+local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
+
+
+
 
