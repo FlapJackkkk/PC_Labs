@@ -1,3 +1,6 @@
+--loadstring(game:HttpGet("https://raw.githubusercontent.com/FlapJackkkk/PC_Labs/refs/heads/main/Main"))()
+
+
 local repo = 'https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/'
 
 local Library = loadstring(game:HttpGet(repo .. 'Library.lua'))()
@@ -2722,6 +2725,13 @@ RightGroupBox:AddSlider('FlagName', {
 
     Compact = false, 
 })
+
+
+
+
+--===============================================================================================
+local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
+
 local MyButton = RightGroupBox:AddButton('InfiniteYield', function()
 loadstring(game:HttpGet(('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'),true))()
     print('Activated')
@@ -2733,9 +2743,10 @@ local MyButton = RightGroupBox:AddButton('Close UI', function()
 end)
 
 
-
 --===============================================================================================
-local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
+
+
+
 
 
 
