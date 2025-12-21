@@ -2748,11 +2748,6 @@ local MyButton = RightGroupBox:AddButton('Close UI', function()
     print('Activated')
 end)
 
-local MyButton = RightGroupBox:AddButton('El Jeep', function()
-loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/jeep.lua'))()')
-     print('Activated!')
-end)
-
 
 
 
