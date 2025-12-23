@@ -54,6 +54,14 @@ loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/pl
      print('Activated!')
 end)
 
+
+local MyButton = LeftGroupBox:AddButton('Firework Spam', function()
+        getgenv().FireKey = "V" -- change to any key F, H, E, Q, etc
+
+loadstring(game:HttpGet('https://raw.githubusercontent.com/sametcetinkaya1447/planecrazy2/refs/heads/main/folder/fireworklauncher.lua'))()
+     print('Activated!')
+end)
+
 LeftGroupBox:AddLabel('    ')
 
 LeftGroupBox:AddLabel('http://45.81.113.26/', true)
