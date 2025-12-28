@@ -2725,6 +2725,12 @@ end)
 
 MyButton:AddTooltip('NOT ServerSided but still cool')
 
+local MyButton = LeftGroupBox:AddButton('Block Text', function()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/FlapJackkkk/Flight-Text/refs/heads/main/Main"))()
+local Players = game:GetService("Players")
+    print('Activated!')
+end)
+
 --===============================================================================================
 
 local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
