@@ -2757,6 +2757,11 @@ loadstring(game:HttpGet(('https://raw.githubusercontent.com/EdgeIY/infiniteyield
     print('Activated')
 end)
 
+local MyButton = RightGroupBox:AddButton('Nameless Admin', function()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/ltseverydayyou/Nameless-Admin/refs/heads/main/Source.lua", true))()
+    print('Activated')
+end)
+
 local MyButton = RightGroupBox:AddButton('Close UI', function()
         Library:Unload()
     print('Activated')
