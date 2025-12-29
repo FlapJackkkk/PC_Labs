@@ -2731,6 +2731,205 @@ local Players = game:GetService("Players")
     print('Activated!')
 end)
 
+local MyButton = LeftGroupBox:AddButton('Hollow Purple', function()
+-- // Anti-Duplicate
+local oldUI = game:GetService("CoreGui"):FindFirstChild("HollowPurple_V34")
+if oldUI then oldUI:Destroy() end
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local mouse = player:GetMouse()
+
+-- // Settings
+local Settings = {
+    Radius = 4,
+    Speed = 6,           
+    Power = 65000,
+    PartName = "BlockStd",
+    UniversalMode = false,
+    RedColor = Color3.fromRGB(255, 0, 0),
+    BlueColor = Color3.fromRGB(0, 0, 255),
+    PurpleColor = Color3.fromRGB(85, 0, 255),
+    SplitWidth = 12,     
+    OffsetY = 4,     
+    OffsetZ = -15        
+}
+
+local RedSwarm, BlueSwarm, PurpleSwarm = {}, {}, {}
+local RedActive, BlueActive, PurpleActive = false, false, false
+local TargetPlayer = nil
+
+-- // 🛡️ Safety: Seat Filter
+local function isForbidden(obj)
+    local check = obj
+    while check and check ~= workspace do
+        local n = check.Name:lower()
+        if n:find("pilot") or n:find("seat") or check:IsA("Seat") or check:IsA("VehicleSeat") then return true end
+        check = check.Parent
+    end
+    return false
+end
+
+-- // 🔍 Search Logic
+local function InitializeBlocks()
+    RedActive = false; BlueActive = false; PurpleActive = false; TargetPlayer = nil
+    RedSwarm, BlueSwarm, PurpleSwarm = {}, {}, {}
+    
+    local container = workspace:FindFirstChild("PlayerAircraft")
+    local myRoot = workspace:FindFirstChild(player.Name .. " Aircraft") or (container and container:FindFirstChild(player.Name))
+    if not myRoot then return end
+
+    local allBlocks = {}
+    for _, v in ipairs(myRoot:GetDescendants()) do
+        local isTarget = Settings.UniversalMode or (v.Name == Settings.PartName)
+        if v:IsA("BasePart") and isTarget and not isForbidden(v) then
+            table.insert(allBlocks, v)
+        end
+    end
+
+    local third = math.floor(#allBlocks / 3)
+    for i, v in ipairs(allBlocks) do
+        for _, obj in ipairs(v:GetDescendants()) do
+            if obj:IsA("Constraint") or obj:IsA("Weld") or obj:IsA("WeldConstraint") then obj:Destroy() end
+        end
+        v.Anchored = false; v.CanCollide = false; v.Material = Enum.Material.SmoothPlastic
+        
+        local bp = v:FindFirstChild("PhysBP") or Instance.new("BodyPosition", v)
+        bp.Name = "PhysBP"; bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge); bp.P = Settings.Power
+        local bg = v:FindFirstChild("PhysBG") or Instance.new("BodyGyro", v)
+        bg.Name = "PhysBG"; bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+
+        if i <= third then
+            v.Color = Settings.RedColor; table.insert(RedSwarm, v)
+        elseif i <= third * 2 then
+            v.Color = Settings.BlueColor; table.insert(BlueSwarm, v)
+        else
+            v.Color = Settings.PurpleColor; table.insert(PurpleSwarm, v)
+        end
+    end
+end
+
+-- // 🧠 Engine
+RunService.Heartbeat:Connect(function()
+    if not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+    local t = tick() * Settings.Speed
+    local gRatio = math.pi * (3 - math.sqrt(5))
+
+    local function getPos(i, total, center, rad, offset)
+        local totalSafe = (total > 0 and total or 1)
+        local y = 1 - (i / totalSafe) * 2
+        local rAtY = math.sqrt(math.abs(1 - y * y))
+        local theta = i * gRatio + offset
+        return center + Vector3.new(math.cos(theta) * rAtY, y, math.sin(theta) * rAtY) * rad
+    end
+
+    local rT = (RedActive and not PurpleActive) and (hrp.CFrame * CFrame.new(Settings.SplitWidth, Settings.OffsetY, Settings.OffsetZ)).Position or (hrp.CFrame * CFrame.new(0, -25, 0)).Position
+    local bT = (BlueActive and not PurpleActive) and (hrp.CFrame * CFrame.new(-Settings.SplitWidth, Settings.OffsetY, Settings.OffsetZ)).Position or (hrp.CFrame * CFrame.new(0, -26, 0)).Position
+    local pT = (hrp.CFrame * CFrame.new(0, -30, 0)).Position 
+    
+    if PurpleActive then
+        pT = (TargetPlayer and TargetPlayer.Character and TargetPlayer.Character:FindFirstChild("HumanoidRootPart")) and TargetPlayer.Character.HumanoidRootPart.Position or (hrp.CFrame * CFrame.new(0, Settings.OffsetY, Settings.OffsetZ)).Position
+    end
+
+    for i, p in ipairs(RedSwarm) do if p:FindFirstChild("PhysBP") then p.PhysBP.Position = getPos(i, #RedSwarm, rT, Settings.Radius, t) end end
+    for i, p in ipairs(BlueSwarm) do if p:FindFirstChild("PhysBP") then p.PhysBP.Position = getPos(i, #BlueSwarm, bT, Settings.Radius, -t) end end
+    for i, p in ipairs(PurpleSwarm) do if p:FindFirstChild("PhysBP") then p.PhysBP.Position = getPos(i, #PurpleSwarm, pT, Settings.Radius * 1.5, t * 1.5) end end
+end)
+
+-- // 🎨 GUI
+local sg = Instance.new("ScreenGui", CoreGui); sg.Name = "HollowPurple_V34"
+local frame = Instance.new("Frame", sg); frame.Size = UDim2.new(0, 280, 0, 520); frame.Position = UDim2.new(0.5, -140, 0.3, 0); frame.BackgroundColor3 = Color3.fromRGB(15, 15, 18); frame.BorderSizePixel = 0; Instance.new("UICorner", frame)
+
+-- Drag Bar (The specific area to move the GUI)
+local dragBar = Instance.new("Frame", frame); dragBar.Size = UDim2.new(1, 0, 0, 40); dragBar.BackgroundTransparency = 1; dragBar.ZIndex = 2
+
+local dragging, dStart, sPos
+dragBar.InputBegan:Connect(function(i)
+    if i.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true; dStart = i.Position; sPos = frame.Position
+    end
+end)
+UserInputService.InputChanged:Connect(function(i)
+    if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = i.Position - dStart
+        frame.Position = UDim2.new(sPos.X.Scale, sPos.X.Offset + delta.X, sPos.Y.Scale, sPos.Y.Offset + delta.Y)
+    end
+end)
+UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end end)
+
+local close = Instance.new("TextButton", frame); close.Size = UDim2.new(0, 30, 0, 30); close.Position = UDim2.new(1, -35, 0, 5); close.Text = "X"; close.TextColor3 = Color3.new(1,1,1); close.BackgroundColor3 = Color3.fromRGB(200, 50, 50); close.Font = "GothamBold"; close.ZIndex = 3; Instance.new("UICorner", close)
+close.MouseButton1Click:Connect(function() sg:Destroy() end)
+
+local mainP = Instance.new("Frame", frame); mainP.Size = UDim2.new(1,0,1,-45); mainP.Position = UDim2.new(0,0,0,45); mainP.BackgroundTransparency = 1
+local setP = Instance.new("ScrollingFrame", frame); setP.Size = UDim2.new(1,0,1,-45); setP.Position = UDim2.new(0,0,0,45); setP.BackgroundTransparency = 1; setP.Visible = false; setP.CanvasSize = UDim2.new(0,0,0,400); setP.ScrollBarThickness = 2
+
+local function createTab(txt, x, page)
+    local b = Instance.new("TextButton", frame); b.Size = UDim2.new(0.35, 0, 0, 30); b.Position = UDim2.new(x, 0, 0, 5); b.Text = txt; b.BackgroundColor3 = Color3.fromRGB(30,30,35); b.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", b); b.Font = "GothamBold"; b.ZIndex = 3
+    b.MouseButton1Click:Connect(function() mainP.Visible = false; setP.Visible = false; page.Visible = true end)
+end
+createTab("MAIN", 0.05, mainP); createTab("CONFIG", 0.45, setP)
+
+local targetBox = Instance.new("TextBox", mainP); targetBox.Size = UDim2.new(0.9, 0, 0, 35); targetBox.Position = UDim2.new(0.05, 0, 0, 10); targetBox.PlaceholderText = "Enter Name..."; targetBox.Text = ""; targetBox.BackgroundColor3 = Color3.fromRGB(30, 30, 35); targetBox.TextColor3 = Color3.new(1,1,1); targetBox.Font = "Gotham"; Instance.new("UICorner", targetBox)
+
+local function createBtn(txt, y, color, parent, callback)
+    local b = Instance.new("TextButton", parent); b.Size = UDim2.new(0.9, 0, 0, 40); b.Position = UDim2.new(0.05, 0, 0, y); b.Text = txt; b.BackgroundColor3 = color; b.TextColor3 = Color3.new(1,1,1); b.Font = "GothamBold"; Instance.new("UICorner", b)
+    b.MouseButton1Click:Connect(function() callback(b) end); return b
+end
+
+createBtn("TELEPORT PURPLE", 55, Settings.PurpleColor, mainP, function()
+    local text = targetBox.Text:lower()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p.DisplayName:lower():find(text) or p.Name:lower():find(text) then TargetPlayer = p; targetBox.Text = "Targeting: "..p.DisplayName; return end
+    end
+end)
+
+createBtn("RECALL & SYNC", 105, Color3.fromRGB(50,50,60), mainP, function() InitializeBlocks() end)
+
+local uniBtn = createBtn("MODE: BLOCKS", 155, Color3.fromRGB(60, 40, 80), mainP, function(b)
+    Settings.UniversalMode = not Settings.UniversalMode
+    b.Text = Settings.UniversalMode and "MODE: UNIVERSAL" or "MODE: BLOCKS"
+end)
+
+createBtn("SUMMON RED", 205, Color3.fromRGB(100,0,0), mainP, function() RedActive = not RedActive end)
+createBtn("SUMMON BLUE", 255, Color3.fromRGB(0,0,100), mainP, function() BlueActive = not BlueActive end)
+createBtn("MERGE PURPLE", 305, Color3.fromRGB(40,0,80), mainP, function() PurpleActive = not PurpleActive end)
+
+-- // Fixed Slider Logic
+local function createSlider(name, y, min, max, default, callback)
+    local lab = Instance.new("TextLabel", setP); lab.Size = UDim2.new(0.9, 0, 0, 20); lab.Position = UDim2.new(0.05,0,0,y); lab.Text = name..": "..default; lab.TextColor3 = Color3.new(1,1,1); lab.BackgroundTransparency = 1; lab.TextXAlignment = "Left"; lab.Font = "Gotham"
+    local bar = Instance.new("Frame", setP); bar.Size = UDim2.new(0.9, 0, 0, 4); bar.Position = UDim2.new(0.05, 0, 0, y+25); bar.BackgroundColor3 = Color3.fromRGB(40,40,40)
+    local handle = Instance.new("Frame", bar); handle.Size = UDim2.new(0, 10, 0, 15); handle.Position = UDim2.new((default-min)/(max-min), -5, 0.5, -7); handle.BackgroundColor3 = Color3.new(1,1,1); Instance.new("UICorner", handle)
+    
+    local sliderDragging = false
+    handle.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliderDragging = true end end)
+    
+    UserInputService.InputChanged:Connect(function(i)
+        if sliderDragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local p = math.clamp((i.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X, 0, 1)
+            local val = math.floor((min + (p * (max - min))) * 10) / 10
+            handle.Position = UDim2.new(p, -5, 0.5, -7)
+            lab.Text = name..": "..val
+            callback(val)
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliderDragging = false end end)
+end
+
+createSlider("Orbit Radius", 10, 1, 60, Settings.Radius, function(v) Settings.Radius = v end)
+createSlider("Rotation Speed", 60, 1, 120, Settings.Speed, function(v) Settings.Speed = v end)
+createSlider("Height Offset", 110, -80, 80, Settings.OffsetY, function(v) Settings.OffsetY = v end)
+
+InitializeBlocks()
+local Players = game:GetService("Players")
+    print('Activated!')
+end)
+
 --===============================================================================================
 
 local RightGroupBox = Tabs.Main:AddRightGroupbox('   ')
